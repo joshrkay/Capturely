@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Search, Sparkles } from 'lucide-react';
-import { Link } from 'react-router';
+import Link from 'next/link';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card } from '../components/ui/card';
@@ -13,7 +13,7 @@ import { generateId } from '../lib/utils';
 import { saveCampaign } from '../lib/storage';
 
 export function Templates() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   
   const categories = [
@@ -63,7 +63,7 @@ export function Templates() {
     };
     
     saveCampaign(campaign);
-    navigate(`/builder/${campaign.id}`);
+    router.push(`/builder/${campaign.id}`);
   };
   
   const handleCreateBlank = () => {
@@ -113,14 +113,14 @@ export function Templates() {
     };
     
     saveCampaign(campaign);
-    navigate(`/builder/${campaign.id}`);
+    router.push(`/builder/${campaign.id}`);
   };
   
   return (
     <div className="p-8">
       {/* Header */}
       <div className="mb-8">
-        <Link to="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
+        <Link href="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
           <ArrowLeft className="w-4 h-4 mr-1" />
           Back to Dashboard
         </Link>

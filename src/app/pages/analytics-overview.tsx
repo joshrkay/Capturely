@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import Link from 'next/link';
 import { TrendingUp, Eye, Mail, Trophy, BarChart3, ArrowUpRight, Calendar } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -20,70 +20,55 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { getCampaigns, getAllAnalytics } from '../lib/storage';
 import { formatNumber, formatPercentage } from '../lib/utils';
+import { fetchAnalyticsOverview, type AnalyticsOverviewResponse } from '@/lib/api-client';
+import { Skeleton } from '../components/ui/skeleton';
 
 export function AnalyticsOverview() {
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [allAnalytics, setAllAnalytics] = useState<any[]>([]);
-  const [timeRange, setTimeRange] = useState<'7days' | '30days' | '90days'>('30days');
+  const [data, setData] = useState<AnalyticsOverviewResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [sortBy, setSortBy] = useState<'views' | 'submissions' | 'conversion'>('views');
-  
+
   useEffect(() => {
-    const c = getCampaigns();
-    const analytics = getAllAnalytics();
-    setCampaigns(c || []);
-    setAllAnalytics(analytics || []);
-  }, []);
-  
-  // Calculate aggregate stats
-  const totalViews = (allAnalytics || []).reduce((sum, a) => sum + (a?.totalViews || 0), 0);
-  const totalSubmissions = (allAnalytics || []).reduce((sum, a) => sum + (a?.totalSubmissions || 0), 0);
-  const overallConversionRate = totalViews > 0 ? (totalSubmissions / totalViews) * 100 : 0;
-  
-  // Get active campaigns count
-  const activeCampaigns = (campaigns || []).filter(c => c.status === 'active').length;
-  
-  // Create campaign performance data
-  const campaignPerformance = (campaigns || []).map(campaign => {
-    const analytics = (allAnalytics || []).find(a => a.campaignId === campaign.id);
-    return {
-      id: campaign.id,
-      name: campaign.name,
-      status: campaign.status,
-      views: analytics?.totalViews || 0,
-      submissions: analytics?.totalSubmissions || 0,
-      conversionRate: analytics?.overallConversionRate || 0,
-      topVariant: analytics?.variants?.[0]?.variantName || 'N/A',
-      type: campaign.type,
-    };
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'views':
-        return b.views - a.views;
-      case 'submissions':
-        return b.submissions - a.submissions;
-      case 'conversion':
-        return b.conversionRate - a.conversionRate;
-      default:
-        return 0;
-    }
-  });
-  
-  // Generate mock time series data for trend chart
-  const days = timeRange === '7days' ? 7 : timeRange === '30days' ? 30 : 90;
-  const trendData = Array.from({ length: Math.min(days, 30) }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (Math.min(days, 30) - 1 - i));
-    
-    return {
-      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      views: Math.floor(Math.random() * 200) + 100,
-      submissions: Math.floor(Math.random() * 40) + 10,
-    };
-  });
-  
-  // Top performing campaigns for chart
+    setLoading(true);
+    fetchAnalyticsOverview({ range: timeRange })
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [timeRange]);
+
+  const totalViews = data?.totals.impressions ?? 0;
+  const totalSubmissions = data?.totals.submissions ?? 0;
+  const overallConversionRate = data?.totals.conversionRate ?? 0;
+  const activeCampaigns = data?.totals.activeCampaigns ?? 0;
+
+  const campaignPerformance = (data?.topCampaigns ?? [])
+    .map(c => ({
+      id: c.campaignId,
+      name: c.name,
+      status: c.status,
+      views: c.impressions,
+      submissions: c.submissions,
+      conversionRate: c.conversionRate,
+      topVariant: 'N/A',
+      type: c.type,
+    }))
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'views': return b.views - a.views;
+        case 'submissions': return b.submissions - a.submissions;
+        case 'conversion': return b.conversionRate - a.conversionRate;
+        default: return 0;
+      }
+    });
+
+  const trendData = (data?.timeseries ?? []).map(t => ({
+    date: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    views: t.impressions,
+    submissions: t.submissions,
+  }));
+
   const topCampaignsData = campaignPerformance.slice(0, 5).map(c => ({
     name: c.name.length > 15 ? c.name.substring(0, 15) + '...' : c.name,
     views: c.views,
@@ -106,9 +91,9 @@ export function AnalyticsOverview() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="7days">Last 7 Days</SelectItem>
-              <SelectItem value="30days">Last 30 Days</SelectItem>
-              <SelectItem value="90days">Last 90 Days</SelectItem>
+              <SelectItem value="7d">Last 7 Days</SelectItem>
+              <SelectItem value="30d">Last 30 Days</SelectItem>
+              <SelectItem value="90d">Last 90 Days</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -127,7 +112,7 @@ export function AnalyticsOverview() {
                 {activeCampaigns}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {campaigns.length} total
+                {campaignPerformance.length} total
               </p>
             </div>
           </div>
@@ -259,7 +244,7 @@ export function AnalyticsOverview() {
           </div>
         </div>
         
-        {campaigns.length === 0 ? (
+        {campaignPerformance.length === 0 ? (
           <div className="p-12 text-center">
             <div className="max-w-md mx-auto">
               <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
@@ -269,7 +254,7 @@ export function AnalyticsOverview() {
               <p className="text-gray-600 mb-4">
                 Create your first campaign to start seeing analytics
               </p>
-              <Link to="/templates">
+              <Link href="/templates">
                 <Button>Create Campaign</Button>
               </Link>
             </div>
@@ -296,8 +281,8 @@ export function AnalyticsOverview() {
                     className="cursor-pointer hover:bg-gray-50"
                   >
                     <TableCell className="font-medium">
-                      <Link 
-                        to={`/analytics/${campaign.id}`}
+                      <Link
+                        href={`/analytics/${campaign.id}`}
                         className="hover:text-purple-600 flex items-center gap-2"
                       >
                         {campaign.name}
@@ -342,7 +327,7 @@ export function AnalyticsOverview() {
                       {campaign.topVariant}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link to={`/analytics/${campaign.id}`}>
+                      <Link href={`/analytics/${campaign.id}`}>
                         <Button variant="ghost" size="sm">
                           <ArrowUpRight className="w-4 h-4 mr-1" />
                           View Details

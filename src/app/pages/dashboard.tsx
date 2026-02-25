@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Plus, MoreVertical, Play, Pause, Archive, Trash2, TrendingUp, Eye, Mail, FileText, Sparkles } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -19,7 +20,7 @@ import { toast } from 'sonner';
 export function Dashboard() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showAIGenerator, setShowAIGenerator] = useState(false);
-  const navigate = useNavigate();
+  const router = useRouter();
   
   useEffect(() => {
     initializeSampleData();
@@ -76,7 +77,7 @@ export function Dashboard() {
     saveCampaign(newCampaign);
     toast.success('Form created! Redirecting to builder...');
     setTimeout(() => {
-      navigate(`/builder/${newCampaign.id}`);
+      router.push(`/builder/${newCampaign.id}`);
     }, 500);
   };
   
@@ -151,7 +152,7 @@ export function Dashboard() {
             <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
             AI Generate
           </Button>
-          <Link to="/templates">
+          <Link href="/templates">
             <Button>
               <Plus className="w-4 h-4 mr-2" />
               Create Campaign
@@ -171,7 +172,7 @@ export function Dashboard() {
             <p className="text-gray-600 mb-6">
               Get started by creating your first popup or form from our template library
             </p>
-            <Link to="/templates">
+            <Link href="/templates">
               <Button>Browse Templates</Button>
             </Link>
           </div>
@@ -235,10 +236,10 @@ export function Dashboard() {
                   
                   {/* Actions */}
                   <div className="flex items-center gap-2">
-                    <Link to={`/builder/${campaign.id}`}>
+                    <Link href={`/builder/${campaign.id}`}>
                       <Button variant="outline" size="sm">Edit</Button>
                     </Link>
-                    <Link to={`/analytics/${campaign.id}`}>
+                    <Link href={`/analytics/${campaign.id}`}>
                       <Button variant="outline" size="sm">Analytics</Button>
                     </Link>
                     

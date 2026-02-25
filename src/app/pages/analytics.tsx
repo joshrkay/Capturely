@@ -4,35 +4,59 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { getCampaign, getCampaignAnalytics } from '../lib/storage';
 import { formatNumber, formatPercentage } from '../lib/utils';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { StatisticalSignificance } from '../components/statistical-significance';
+import { fetchCampaignAnalytics, type CampaignAnalyticsResponse } from '@/lib/api-client';
+import { Skeleton } from '../components/ui/skeleton';
 
 export function Analytics() {
   const { id } = useParams<{ id: string }>();
-  const [campaign, setCampaign] = useState<any>(null);
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [timeRange, setTimeRange] = useState<'7days' | '30days'>('7days');
-  
+  const [data, setData] = useState<CampaignAnalyticsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d'>('7d');
+
   useEffect(() => {
     if (id) {
-      const c = getCampaign(id);
-      const a = getCampaignAnalytics(id);
-      setCampaign(c);
-      setAnalytics(a);
+      setLoading(true);
+      fetchCampaignAnalytics(id, { range: timeRange })
+        .then(setData)
+        .catch(() => setData(null))
+        .finally(() => setLoading(false));
     }
-  }, [id]);
-  
-  if (!campaign || !analytics) {
+  }, [id, timeRange]);
+
+  if (loading) {
+    return (
+      <div className="p-8 space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-6">
+          <Skeleton className="h-80" />
+          <Skeleton className="h-80" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
     return (
       <div className="p-8">
+        <Link href="/analytics" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
+          <ArrowLeft className="w-4 h-4 mr-1" />
+          Back to Analytics Overview
+        </Link>
         <p className="text-gray-600">No analytics data available</p>
       </div>
     );
   }
-  
+
   // Define variant colors for consistent use across charts
   const variantColors = [
     '#8b5cf6', // Purple
@@ -42,78 +66,87 @@ export function Analytics() {
     '#ec4899', // Pink
     '#6366f1', // Indigo
   ];
-  
-  // Generate mock time series data based on selected time range
-  const days = timeRange === '7days' ? 7 : 30;
-  const timeSeriesData = Array.from({ length: days }, (_, i) => {
-    const dataPoint: any = {
-      day: timeRange === '7days' ? `Day ${i + 1}` : `${i + 1}`,
-    };
-    
-    // Add data for each variant
-    analytics.variants.forEach((variant: any, index: number) => {
-      const variantKey = variant.variantName.replace(/\s+/g, '');
-      dataPoint[variantKey] = Math.floor(Math.random() * 30) + 10;
-    });
-    
-    return dataPoint;
-  });
-  
-  const variantData = analytics.variants.map((v: any) => ({
-    name: v.variantName,
-    views: v.views,
+
+  // Map API variants to the format used by StatisticalSignificance & UI
+  const variants = data.variants.map(v => ({
+    variantId: v.variantId,
+    variantName: v.variantName,
+    views: v.impressions,
     submissions: v.submissions,
-    conversion: v.conversionRate,
+    conversionRate: v.conversionRate,
   }));
-  
+
+  // Build real timeseries data grouped by date with per-variant columns
+  const dateMap = new Map<string, Record<string, number>>();
+  for (const t of data.timeseries) {
+    const dateLabel = new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (!dateMap.has(dateLabel)) {
+      dateMap.set(dateLabel, { date: 0 } as any);
+    }
+    const entry = dateMap.get(dateLabel)!;
+    const variantInfo = data.variants.find(v => v.variantId === t.variantId);
+    const variantKey = (variantInfo?.variantName ?? t.variantId).replace(/\s+/g, '');
+    entry[variantKey] = (entry[variantKey] ?? 0) + t.submissions;
+  }
+  const timeSeriesData = Array.from(dateMap.entries()).map(([date, values]) => ({
+    date,
+    ...values,
+  }));
+
   // Restructure data for grouped bar chart
   const variantComparisonData = [
     {
       metric: 'Views',
-      ...analytics.variants.reduce((acc: any, variant: any) => {
-        acc[variant.variantName] = variant.views;
+      ...variants.reduce((acc: any, v) => {
+        acc[v.variantName] = v.views;
         return acc;
-      }, {})
+      }, {}),
     },
     {
       metric: 'Submissions',
-      ...analytics.variants.reduce((acc: any, variant: any) => {
-        acc[variant.variantName] = variant.submissions;
+      ...variants.reduce((acc: any, v) => {
+        acc[v.variantName] = v.submissions;
         return acc;
-      }, {})
-    }
+      }, {}),
+    },
   ];
-  
-  const winner = analytics.variants.reduce((best: any, current: any) => 
-    current.conversionRate > best.conversionRate ? current : best
-  );
-  
+
+  const totalViews = data.totals.impressions;
+  const totalSubmissions = data.totals.submissions;
+  const overallConversionRate = data.totals.conversionRate;
+
+  const winner = variants.length > 0
+    ? variants.reduce((best, current) =>
+        current.conversionRate > best.conversionRate ? current : best
+      )
+    : null;
+
   return (
     <div className="p-8">
       {/* Header */}
       <div className="mb-8">
-        <Link to="/analytics" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
+        <Link href="/analytics" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
           <ArrowLeft className="w-4 h-4 mr-1" />
           Back to Analytics Overview
         </Link>
-        
+
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{campaign.name}</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{data.campaignName}</h1>
             <p className="text-gray-600">Campaign Analytics</p>
           </div>
-          
+
           <div className="flex gap-2">
-            <Link to={`/builder/${id}`}>
+            <Link href={`/builder/${id}`}>
               <Button variant="outline">Edit Campaign</Button>
             </Link>
-            <Link to={`/submissions/${id}`}>
+            <Link href={`/submissions/${id}`}>
               <Button variant="outline">View Submissions</Button>
             </Link>
           </div>
         </div>
       </div>
-      
+
       {/* Overview Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         <Card className="p-6">
@@ -124,12 +157,12 @@ export function Analytics() {
             <div>
               <p className="text-sm text-gray-600">Total Views</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatNumber(analytics.totalViews)}
+                {formatNumber(totalViews)}
               </p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
@@ -138,12 +171,12 @@ export function Analytics() {
             <div>
               <p className="text-sm text-gray-600">Submissions</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatNumber(analytics.totalSubmissions)}
+                {formatNumber(totalSubmissions)}
               </p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center">
@@ -152,12 +185,12 @@ export function Analytics() {
             <div>
               <p className="text-sm text-gray-600">Conversion Rate</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatPercentage(analytics.overallConversionRate)}
+                {formatPercentage(overallConversionRate)}
               </p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -166,16 +199,18 @@ export function Analytics() {
             <div>
               <p className="text-sm text-gray-600">Top Variant</p>
               <p className="text-lg font-bold text-gray-900">
-                {winner.variantName}
+                {winner?.variantName ?? 'N/A'}
               </p>
-              <p className="text-xs text-gray-600">
-                {formatPercentage(winner.conversionRate)} CR
-              </p>
+              {winner && (
+                <p className="text-xs text-gray-600">
+                  {formatPercentage(winner.conversionRate)} CR
+                </p>
+              )}
             </div>
           </div>
         </Card>
       </div>
-      
+
       {/* Charts */}
       <div className="grid grid-cols-2 gap-6 mb-8">
         <Card className="p-6">
@@ -183,35 +218,37 @@ export function Analytics() {
             <h3 className="text-lg font-semibold text-gray-900">
               Performance Over Time
             </h3>
-            <Tabs value={timeRange} onValueChange={(value) => setTimeRange(value as '7days' | '30days')}>
+            <Tabs value={timeRange} onValueChange={(value) => setTimeRange(value as '7d' | '30d')}>
               <TabsList>
-                <TabsTrigger value="7days">Last 7 Days</TabsTrigger>
-                <TabsTrigger value="30days">Last 30 Days</TabsTrigger>
+                <TabsTrigger value="7d">Last 7 Days</TabsTrigger>
+                <TabsTrigger value="30d">Last 30 Days</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={timeSeriesData}>
+            <LineChart data={timeSeriesData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
+              <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
               <Legend />
-              {analytics.variants.map((variant: any, index: number) => {
+              {variants.map((variant, index) => {
                 const variantKey = variant.variantName.replace(/\s+/g, '');
                 return (
-                  <Bar
+                  <Line
                     key={variantKey}
+                    type="monotone"
                     dataKey={variantKey}
-                    fill={variantColors[index % variantColors.length]}
+                    stroke={variantColors[index % variantColors.length]}
+                    strokeWidth={2}
                     name={variant.variantName}
                   />
                 );
               })}
-            </BarChart>
+            </LineChart>
           </ResponsiveContainer>
         </Card>
-        
+
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Variant Performance
@@ -223,10 +260,10 @@ export function Analytics() {
               <YAxis />
               <Tooltip />
               <Legend />
-              {analytics.variants.map((variant: any, index: number) => (
-                <Bar 
+              {variants.map((variant, index) => (
+                <Bar
                   key={variant.variantId}
-                  dataKey={variant.variantName} 
+                  dataKey={variant.variantName}
                   fill={variantColors[index % variantColors.length]}
                 />
               ))}
@@ -234,34 +271,34 @@ export function Analytics() {
           </ResponsiveContainer>
         </Card>
       </div>
-      
+
       {/* Statistical Significance - Show only if A/B testing */}
-      {campaign.variants.length > 1 && (
+      {variants.length > 1 && (
         <div className="mb-8">
           <StatisticalSignificance
-            variants={analytics.variants}
-            totalViews={analytics.totalViews}
+            variants={variants}
+            totalViews={totalViews}
           />
         </div>
       )}
-      
+
       {/* Variant Comparison */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-gray-900">
             A/B Test Results
           </h3>
-          {campaign.variants.length > 1 && (
+          {variants.length > 1 && (
             <Badge className="bg-purple-100 text-purple-700">
-              {campaign.variants.length} Variants Active
+              {variants.length} Variants Active
             </Badge>
           )}
         </div>
-        
+
         <div className="space-y-4">
-          {analytics.variants.map((variant: any) => {
-            const isWinner = variant.variantId === winner.variantId;
-            
+          {variants.map((variant) => {
+            const isWinner = winner && variant.variantId === winner.variantId;
+
             return (
               <div
                 key={variant.variantId}
@@ -286,7 +323,7 @@ export function Analytics() {
                     <p className="text-sm text-gray-600">Conversion Rate</p>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <p className="text-sm text-gray-600">Views</p>
@@ -303,7 +340,9 @@ export function Analytics() {
                   <div>
                     <p className="text-sm text-gray-600">Traffic Split</p>
                     <p className="text-lg font-semibold text-gray-900">
-                      {formatPercentage((variant.views / analytics.totalViews) * 100)}
+                      {totalViews > 0
+                        ? formatPercentage((variant.views / totalViews) * 100)
+                        : '0%'}
                     </p>
                   </div>
                 </div>
@@ -311,15 +350,14 @@ export function Analytics() {
             );
           })}
         </div>
-        
-        {campaign.variants.length > 1 && (
-          <StatisticalSignificance
-            totalViews={analytics.totalViews}
-            winner={winner}
-            onPromoteWinner={() => {
-              // Add logic to promote the winner
-            }}
-          />
+
+        {variants.length > 1 && (
+          <div className="mt-6">
+            <StatisticalSignificance
+              variants={variants}
+              totalViews={totalViews}
+            />
+          </div>
         )}
       </Card>
     </div>

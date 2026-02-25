@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { ArrowLeft, Download, Search, Filter } from 'lucide-react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -63,7 +64,7 @@ export function Submissions() {
     <div className="p-8">
       {/* Header */}
       <div className="mb-8">
-        <Link to="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
+        <Link href="/" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4">
           <ArrowLeft className="w-4 h-4 mr-1" />
           Back to Dashboard
         </Link>
@@ -75,7 +76,7 @@ export function Submissions() {
           </div>
           
           <div className="flex gap-2">
-            <Link to={`/analytics/${id}`}>
+            <Link href={`/analytics/${id}`}>
               <Button variant="outline">View Analytics</Button>
             </Link>
             <Button onClick={handleExport} disabled={submissions.length === 0}>

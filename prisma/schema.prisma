@@ -1,0 +1,158 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Account {
+  id         String   @id @default(cuid())
+  clerkOrgId String   @unique @map("clerk_org_id")
+  name       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  sites          Site[]
+  campaigns      Campaign[]
+  dailyMetrics   DailyMetric[]
+  participants   ExperimentParticipant[]
+  notifications  Notification[]
+
+  @@map("accounts")
+}
+
+model Site {
+  id         String   @id @default(cuid())
+  accountId  String   @map("account_id")
+  domain     String
+  publicKey  String   @unique @map("public_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  account      Account       @relation(fields: [accountId], references: [id])
+  campaigns    Campaign[]
+  dailyMetrics DailyMetric[]
+
+  @@index([accountId])
+  @@map("sites")
+}
+
+model Campaign {
+  id        String   @id @default(cuid())
+  accountId String   @map("account_id")
+  siteId    String   @map("site_id")
+  name      String
+  type      String
+  status    String   @default("draft")
+  config    Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account      Account                @relation(fields: [accountId], references: [id])
+  site         Site                   @relation(fields: [siteId], references: [id])
+  experiments  Experiment[]
+  dailyMetrics DailyMetric[]
+  participants ExperimentParticipant[]
+  submissions  Submission[]
+
+  @@index([accountId])
+  @@index([siteId])
+  @@map("campaigns")
+}
+
+model Experiment {
+  id         String   @id @default(cuid())
+  campaignId String   @map("campaign_id")
+  status     String   @default("running")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  campaign     Campaign               @relation(fields: [campaignId], references: [id])
+  participants ExperimentParticipant[]
+  dailyMetrics DailyMetric[]
+
+  @@index([campaignId])
+  @@map("experiments")
+}
+
+model DailyMetric {
+  id                String   @id @default(cuid())
+  accountId         String   @map("account_id")
+  siteId            String   @map("site_id")
+  campaignId        String   @map("campaign_id")
+  experimentId      String?  @map("experiment_id")
+  variantId         String?  @map("variant_id")
+  date              DateTime @db.Date
+  impressionsCount  Int      @default(0) @map("impressions_count")
+  submissionsCount  Int      @default(0) @map("submissions_count")
+  participantsCount Int      @default(0) @map("participants_count")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  account    Account     @relation(fields: [accountId], references: [id])
+  site       Site        @relation(fields: [siteId], references: [id])
+  campaign   Campaign    @relation(fields: [campaignId], references: [id])
+  experiment Experiment? @relation(fields: [experimentId], references: [id])
+
+  @@unique([campaignId, variantId, date], name: "campaign_variant_date")
+  @@index([accountId, date])
+  @@index([campaignId, date])
+  @@index([siteId, date])
+  @@map("daily_metrics")
+}
+
+model ExperimentParticipant {
+  id           String   @id @default(cuid())
+  accountId    String   @map("account_id")
+  siteId       String   @map("site_id")
+  experimentId String   @map("experiment_id")
+  campaignId   String   @map("campaign_id")
+  variantId    String   @map("variant_id")
+  visitorId    String   @map("visitor_id")
+  firstSeenAt  DateTime @default(now()) @map("first_seen_at")
+
+  account    Account    @relation(fields: [accountId], references: [id])
+  campaign   Campaign   @relation(fields: [campaignId], references: [id])
+  experiment Experiment @relation(fields: [experimentId], references: [id])
+
+  @@unique([experimentId, visitorId], name: "experiment_visitor")
+  @@index([experimentId, firstSeenAt])
+  @@map("experiment_participants")
+}
+
+model Submission {
+  id           String   @id @default(cuid())
+  campaignId   String   @map("campaign_id")
+  variantId    String   @map("variant_id")
+  data         Json
+  submissionId String?  @unique @map("submission_id")
+  ipHash       String?  @map("ip_hash")
+  pageUrl      String?  @map("page_url")
+  userAgent    String?  @map("user_agent")
+  status       String   @default("new")
+  isSpam       Boolean  @default(false) @map("is_spam")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([campaignId])
+  @@map("submissions")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  accountId String    @map("account_id")
+  type      String
+  title     String
+  body      String
+  linkUrl   String?   @map("link_url")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@map("notifications")
+}

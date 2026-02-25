@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { 
@@ -31,7 +32,7 @@ import { toast } from 'sonner';
 
 export function Builder() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const router = useRouter();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string>('');
   const [selectedFieldId, setSelectedFieldId] = useState<string>('');
@@ -44,10 +45,10 @@ export function Builder() {
         setCampaign(c);
         setSelectedVariantId(c.variants[0]?.id || '');
       } else {
-        navigate('/');
+        router.push('/');
       }
     }
-  }, [id, navigate]);
+  }, [id, router]);
   
   const selectedVariant = campaign?.variants.find(v => v.id === selectedVariantId);
   const selectedField = selectedVariant?.fields.find(f => f.id === selectedFieldId);
@@ -67,7 +68,7 @@ export function Builder() {
         updatedAt: new Date().toISOString() 
       });
       toast.success('Campaign published!');
-      navigate('/');
+      router.push('/');
     }
   };
   
@@ -148,7 +149,7 @@ export function Builder() {
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link to="/" className="text-gray-600 hover:text-gray-900">
+              <Link href="/" className="text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5" />
               </Link>
               
