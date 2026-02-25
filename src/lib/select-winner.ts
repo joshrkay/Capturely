@@ -24,6 +24,7 @@ function calculateZScore(control: VariantStats, variant: VariantStats): number {
   const totalViews = control.impressions + variant.impressions;
 
   if (totalViews === 0) return 0;
+  if (control.impressions === 0 || variant.impressions === 0) return 0;
 
   const pooledP = totalConversions / totalViews;
   const se = Math.sqrt(

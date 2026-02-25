@@ -168,4 +168,86 @@ describe('selectWinner', () => {
     expect(result.reason).toBe('significant');
     expect(result.is_significant).toBe(true);
   });
+
+  it('defaults significanceEnabled to false when omitted', () => {
+    const result = selectWinner(control, variant);
+    expect(result.winner_variant_id).toBe('variant-b');
+    expect(result.reason).toBe('best_conversion');
+    expect(result.is_significant).toBe(false);
+  });
+
+  it('handles submissions > impressions (CR > 100%) without crashing', () => {
+    const badControl: VariantStats = {
+      variantId: 'control',
+      impressions: 50,
+      submissions: 80,
+      isControl: true,
+    };
+    const badVariant: VariantStats = {
+      variantId: 'variant-b',
+      impressions: 50,
+      submissions: 100,
+      isControl: false,
+    };
+    const result = selectWinner(badControl, badVariant, true);
+    expect(result.winner_variant_id).toBe('variant-b');
+    expect(['best_conversion', 'significant']).toContain(result.reason);
+  });
+
+  it('ties when both have 0 submissions but different impressions', () => {
+    const ctrl: VariantStats = {
+      variantId: 'control',
+      impressions: 500,
+      submissions: 0,
+      isControl: true,
+    };
+    const v: VariantStats = {
+      variantId: 'variant-b',
+      impressions: 1000,
+      submissions: 0,
+      isControl: false,
+    };
+    const result = selectWinner(ctrl, v, true);
+    expect(result.winner_variant_id).toBe('control');
+    expect(result.reason).toBe('tie_control');
+  });
+
+  it('very close rates with large samples are not significant', () => {
+    // 10.00% vs 10.01% — should NOT be significant even with 10k samples
+    const ctrl: VariantStats = {
+      variantId: 'control',
+      impressions: 10000,
+      submissions: 1000,
+      isControl: true,
+    };
+    const v: VariantStats = {
+      variantId: 'variant-b',
+      impressions: 10000,
+      submissions: 1001,
+      isControl: false,
+    };
+    const result = selectWinner(ctrl, v, true);
+    expect(result.winner_variant_id).toBe('variant-b');
+    expect(result.reason).toBe('best_conversion');
+    expect(result.is_significant).toBe(false);
+  });
+
+  it('only control has impressions, variant has zero (significance enabled)', () => {
+    const ctrl: VariantStats = {
+      variantId: 'control',
+      impressions: 500,
+      submissions: 50,
+      isControl: true,
+    };
+    const v: VariantStats = {
+      variantId: 'variant-b',
+      impressions: 0,
+      submissions: 0,
+      isControl: false,
+    };
+    const result = selectWinner(ctrl, v, true);
+    expect(result.winner_variant_id).toBe('control');
+    expect(result.reason).toBe('best_conversion');
+    expect(result.is_significant).toBe(false);
+  });
 });
