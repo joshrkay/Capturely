@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:integration:local": "docker compose up -d && prisma migrate dev --name local-verify && npm run test && docker compose down"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.38.2",
