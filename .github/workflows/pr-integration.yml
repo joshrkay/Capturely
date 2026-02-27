@@ -1,0 +1,54 @@
+name: PR Integration
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: capturely_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d capturely_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/capturely_test?schema=public
+      CLERK_SECRET_KEY: test_key
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: test_key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Prisma migrate (integration gate)
+        run: npx prisma migrate dev --name ci-verify --skip-seed
+
+      - name: Ensure no uncommitted Prisma changes
+        run: git diff --exit-code prisma || (echo "Uncommitted Prisma changes found. Run migrate locally and commit results." && exit 1)
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test
