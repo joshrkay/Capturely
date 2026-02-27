@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MemberRole {
+  owner
+  admin
+  member
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  name      String   @default("My Account")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members AccountMember[]
+
+  @@map("accounts")
+}
+
+model AccountMember {
+  id        String     @id @default(cuid())
+  accountId String     @map("account_id")
+  userId    String     @map("user_id")
+  role      MemberRole @default(member)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([userId])
+  @@map("account_members")
+}
