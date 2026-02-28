@@ -1,0 +1,57 @@
+name: PR Integration
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/capturely_dev?schema=public
+      CLERK_SECRET_KEY: test_key
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: test_key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Start local Postgres via docker-compose
+        run: docker compose up -d
+
+      - name: Wait for Postgres health
+        run: |
+          for i in {1..30}; do
+            if docker compose ps | grep -q "healthy"; then
+              echo "Postgres is healthy"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres failed to become healthy" && docker compose logs && exit 1
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Prisma migrate (integration gate)
+        run: npx prisma migrate dev --name ci-verify
+
+      - name: Ensure no uncommitted Prisma changes
+        run: git diff --exit-code prisma || (echo "Uncommitted Prisma changes found. Run migrate locally and commit results." && exit 1)
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test
+
+      - name: Teardown docker-compose
+        if: always()
+        run: docker compose down -v
