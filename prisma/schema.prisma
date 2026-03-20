@@ -87,9 +87,53 @@ model Site {
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  submissions Submission[]
 
   @@index([accountId])
   @@index([publicKey])
   @@map("sites")
+}
+
+// --- Gate C: Submissions ---
+
+enum SubmissionStatus {
+  new_submission @map("new")
+  read
+  archived
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  accountId    String           @map("account_id")
+  siteId       String           @map("site_id")
+  campaignId   String?          @map("campaign_id")
+  variantId    String?          @map("variant_id")
+  experimentId String?          @map("experiment_id")
+  submissionId String           @map("submission_id") // client-generated UUID for idempotency
+  email        String?
+  phone        String?
+  name         String?
+  fieldsJson   String           @map("fields_json") // JSON blob of all field values
+  status       SubmissionStatus @default(new_submission)
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, submissionId])
+  @@index([accountId])
+  @@index([siteId])
+  @@map("submissions")
+}
+
+// --- Gate C: Account Usage ---
+
+model AccountUsage {
+  id              String  @id @default(cuid())
+  accountId       String  @unique @map("account_id")
+  submissionCount Int     @default(0) @map("submission_count")
+  overageCount    Int     @default(0) @map("overage_count")
+  usageLocked     Boolean @default(false) @map("usage_locked")
+
+  @@map("account_usage")
 }
