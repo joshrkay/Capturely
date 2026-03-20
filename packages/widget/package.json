@@ -1,0 +1,7 @@
+{
+  "name": "@capturely/widget",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/widget.ts",
+  "types": "./src/widget.ts"
+}

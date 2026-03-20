@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@capturely/shared-forms": ["./packages/shared/forms/src/index.ts"]
     }
   },
   "include": [
