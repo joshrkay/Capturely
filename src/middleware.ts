@@ -8,6 +8,7 @@ const isPublicApiRoute = createRouteMatcher([
   "/api/health(.*)",
   "/api/stripe/webhook(.*)",
   "/api/growthbook/webhook(.*)",
+  "/api/cron(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

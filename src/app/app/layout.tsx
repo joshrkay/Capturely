@@ -1,6 +1,7 @@
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { NotificationsBell } from "./notifications-bell";
+import { BillingGuard } from "./billing-guard";
 
 const navLinks = [
   { href: "/app", label: "Dashboard" },
@@ -41,7 +42,9 @@ export default function AppLayout({
           <UserButton />
         </div>
       </header>
-      <main className="p-6">{children}</main>
+      <main className="p-6">
+          <BillingGuard>{children}</BillingGuard>
+        </main>
     </div>
   );
 }

@@ -3,15 +3,38 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 
-interface AccountData {
+interface BillingStatus {
   planKey: string;
+  planName: string;
   paymentStatus: string;
+  paymentGraceUntil: string | null;
   billingCycleEnd: string | null;
+  hasStripe: boolean;
+  limits: {
+    sites: number;
+    submissionsPerMonth: number;
+    maxVariants: number;
+    aiGenerationsPerMonth: number;
+  };
+  features: {
+    abTesting: boolean;
+    aiCopilot: boolean;
+    autoOptimization: boolean;
+    webhooks: boolean;
+  };
   usage: {
     submissionCount: number;
+    submissionLimit: number;
     aiGenerationsCount: number;
+    aiGenerationsLimit: number;
     usageLocked: boolean;
-  } | null;
+    overageCount: number;
+  };
+  counts: {
+    sites: number;
+    sitesLimit: number;
+    campaigns: number;
+  };
 }
 
 interface PlanTier {
@@ -32,9 +55,33 @@ const PLANS: PlanTier[] = [
   { key: "enterprise", name: "Enterprise", price: "Custom", submissions: "Unlimited", sites: "Unlimited", variants: "Unlimited", aiCopilot: true, autoOptimization: true },
 ];
 
+function UsageBar({ used, limit, label }: { used: number; limit: number; label: string }) {
+  const pct = limit === Infinity ? 0 : Math.min((used / limit) * 100, 100);
+  const isWarning = pct >= 80;
+  const isDanger = pct >= 100;
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-zinc-600 dark:text-zinc-400">{label}</span>
+        <span className={`font-medium ${isDanger ? "text-red-600" : isWarning ? "text-amber-600" : "text-zinc-900 dark:text-zinc-100"}`}>
+          {used.toLocaleString()} / {limit === Infinity ? "Unlimited" : limit.toLocaleString()}
+        </span>
+      </div>
+      {limit !== Infinity && (
+        <div className="mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
+          <div
+            className={`h-2 rounded-full transition-all ${isDanger ? "bg-red-500" : isWarning ? "bg-amber-500" : "bg-indigo-500"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BillingPage() {
   const searchParams = useSearchParams();
-  const [account, setAccount] = useState<AccountData | null>(null);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
 
@@ -42,20 +89,9 @@ export default function BillingPage() {
   const canceled = searchParams.get("canceled");
 
   useEffect(() => {
-    // Fetch account data
-    fetch("/api/team/members")
+    fetch("/api/billing/status")
       .then((r) => r.json())
-      .then(() => {
-        // For now, use a simulated account state
-        // In production, this would come from a dedicated /api/billing endpoint
-        setAccount({
-          planKey: "free",
-          paymentStatus: "active",
-          billingCycleEnd: null,
-          usage: { submissionCount: 0, aiGenerationsCount: 0, usageLocked: false },
-        });
-        setLoading(false);
-      })
+      .then((data) => { setBilling(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -70,6 +106,8 @@ export default function BillingPage() {
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else {
+        setUpgrading(null);
       }
     } catch {
       setUpgrading(null);
@@ -84,7 +122,8 @@ export default function BillingPage() {
     }
   };
 
-  if (loading) return <div className="p-8 text-zinc-500">Loading...</div>;
+  if (loading) return <div className="p-8 text-zinc-500">Loading billing...</div>;
+  if (!billing) return <div className="p-8 text-zinc-500">Failed to load billing data</div>;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -101,56 +140,79 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Current Plan & Usage */}
-      {account && (
-        <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                Current plan: <span className="capitalize">{account.planKey}</span>
-              </h3>
-              {account.paymentStatus !== "active" && (
-                <span className="mt-1 inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
-                  {account.paymentStatus}
-                </span>
-              )}
-            </div>
-            {account.planKey !== "free" && (
-              <button
-                onClick={handlePortal}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400"
-              >
-                Manage subscription
-              </button>
-            )}
-          </div>
-
-          {account.usage && (
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-zinc-500">Submissions this cycle</div>
-                <div className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                  {account.usage.submissionCount.toLocaleString()}
-                </div>
-                {account.usage.usageLocked && (
-                  <span className="text-xs text-red-600">Usage limit reached</span>
-                )}
-              </div>
-              <div>
-                <div className="text-xs text-zinc-500">AI generations this cycle</div>
-                <div className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                  {account.usage.aiGenerationsCount.toLocaleString()}
-                </div>
-              </div>
-            </div>
+      {/* Payment Status Banners */}
+      {billing.paymentStatus === "past_due" && (
+        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4 dark:bg-amber-900/20 dark:border-amber-800">
+          <div className="text-sm font-medium text-amber-800 dark:text-amber-300">Payment past due</div>
+          <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+            Please update your payment method to avoid service interruption.
+            {billing.paymentGraceUntil && ` Grace period ends ${new Date(billing.paymentGraceUntil).toLocaleDateString()}.`}
+          </p>
+          {billing.hasStripe && (
+            <button onClick={handlePortal} className="mt-2 rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">
+              Update payment method
+            </button>
           )}
         </div>
       )}
+      {billing.paymentStatus === "suspended" && (
+        <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4 dark:bg-red-900/20 dark:border-red-800">
+          <div className="text-sm font-medium text-red-800 dark:text-red-300">Account suspended</div>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-400">
+            Your dashboard is locked. Live forms continue to work. Resolve billing to restore access.
+          </p>
+          {billing.hasStripe && (
+            <button onClick={handlePortal} className="mt-2 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">
+              Resolve billing
+            </button>
+          )}
+        </div>
+      )}
+      {billing.usage.usageLocked && (
+        <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4 dark:bg-red-900/20 dark:border-red-800">
+          <div className="text-sm font-medium text-red-800 dark:text-red-300">Usage limit reached</div>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-400">
+            You&apos;ve exceeded your submission limit. Upgrade to continue.
+          </p>
+        </div>
+      )}
+
+      {/* Current Plan & Usage */}
+      <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Current plan: {billing.planName}
+            </h3>
+            {billing.billingCycleEnd && (
+              <p className="mt-1 text-sm text-zinc-500">
+                Billing cycle ends {new Date(billing.billingCycleEnd).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+          {billing.hasStripe && (
+            <button
+              onClick={handlePortal}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400"
+            >
+              Manage subscription
+            </button>
+          )}
+        </div>
+
+        <div className="mt-6 space-y-4">
+          <UsageBar used={billing.usage.submissionCount} limit={billing.usage.submissionLimit} label="Submissions" />
+          {billing.features.aiCopilot && (
+            <UsageBar used={billing.usage.aiGenerationsCount} limit={billing.usage.aiGenerationsLimit} label="AI Generations" />
+          )}
+          <UsageBar used={billing.counts.sites} limit={billing.limits.sites} label="Sites" />
+        </div>
+      </div>
 
       {/* Plan Cards */}
       <div className="grid grid-cols-4 gap-4">
         {PLANS.map((plan) => {
-          const isCurrent = account?.planKey === plan.key;
+          const isCurrent = billing.planKey === plan.key;
           const isPopular = plan.key === "growth";
 
           return (
@@ -172,9 +234,9 @@ export default function BillingPage() {
                 <li>{plan.submissions} submissions</li>
                 <li>{plan.sites} sites</li>
                 <li>{plan.variants} variants per campaign</li>
-                <li>{plan.aiCopilot ? "AI Copilot" : "No AI Copilot"}</li>
-                <li>{plan.autoOptimization ? "Auto-optimization" : "No auto-optimization"}</li>
-                <li>Team collaboration on all plans</li>
+                <li className={plan.aiCopilot ? "" : "line-through opacity-50"}>AI Copilot</li>
+                <li className={plan.autoOptimization ? "" : "line-through opacity-50"}>Auto-optimization</li>
+                <li>Team collaboration</li>
               </ul>
 
               <div className="mt-6">
