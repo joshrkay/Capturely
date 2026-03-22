@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/runtime-token";
+import { fireWebhook } from "@/lib/webhooks";
 
 const submitSchema = z.object({
   publicKey: z.string().min(1),
   campaignId: z.string().optional(),
   variantId: z.string().optional(),
+  experimentId: z.string().optional(),
+  visitorId: z.string().optional(),
   submissionId: z.string().uuid("submissionId must be a valid UUID"),
   fields: z.record(z.string(), z.string()),
 });
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { publicKey, campaignId, variantId, submissionId, fields } = parsed.data;
+    const { publicKey, campaignId, variantId, experimentId, visitorId, submissionId, fields } = parsed.data;
 
     // Token public key must match payload
     if (tokenPk !== publicKey) {
@@ -125,6 +128,38 @@ export async function POST(req: NextRequest) {
         submissionCount: { increment: 1 },
       },
     });
+
+    // Write ExperimentEvent conversion for A/B testing (non-blocking)
+    if (experimentId && variantId && visitorId) {
+      prisma.experimentEvent.create({
+        data: {
+          visitorId,
+          experimentKey: experimentId,
+          variationId: variantId,
+          eventType: "conversion",
+          campaignId: campaignId ?? null,
+          siteId: site.id,
+        },
+      }).catch(() => {
+        // Best-effort — don't fail the submission for analytics
+      });
+    }
+
+    // Fire webhook if configured (non-blocking)
+    if (campaignId) {
+      fireWebhook(site.id, campaignId, {
+        submissionId,
+        email,
+        phone,
+        name,
+        fields,
+        campaignId,
+        variantId: variantId ?? null,
+        createdAt: new Date().toISOString(),
+      }).catch(() => {
+        // Best-effort — don't fail the submission for webhooks
+      });
+    }
 
     return NextResponse.json(
       { ok: true, submissionId },

@@ -22,6 +22,12 @@ export async function POST(
 
     const site = await prisma.site.findFirst({
       where: { id, accountId: ctx.accountId, status: "active" },
+      include: {
+        campaigns: {
+          where: { status: "published" },
+          include: { variants: true },
+        },
+      },
     });
 
     if (!site) {

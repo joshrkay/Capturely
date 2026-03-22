@@ -1,10 +1,15 @@
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import { NotificationsBell } from "./notifications-bell";
+import { BillingGuard } from "./billing-guard";
 
 const navLinks = [
   { href: "/app", label: "Dashboard" },
+  { href: "/app/campaigns", label: "Campaigns" },
   { href: "/app/sites", label: "Sites" },
   { href: "/app/submissions", label: "Submissions" },
+  { href: "/app/analytics", label: "Analytics" },
+  { href: "/app/billing", label: "Billing" },
   { href: "/app/settings/team", label: "Team" },
 ];
 
@@ -32,9 +37,14 @@ export default function AppLayout({
             ))}
           </nav>
         </div>
-        <UserButton />
+        <div className="flex items-center gap-3">
+          <NotificationsBell />
+          <UserButton />
+        </div>
       </header>
-      <main className="p-6">{children}</main>
+      <main className="p-6">
+          <BillingGuard>{children}</BillingGuard>
+        </main>
     </div>
   );
 }

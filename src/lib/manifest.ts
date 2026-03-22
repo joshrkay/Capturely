@@ -1,21 +1,52 @@
-import type { SiteManifestV1 } from "@capturely/shared-forms";
+import type { SiteManifestV1, ManifestCampaign, FormSchema } from "@capturely/shared-forms";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-/**
- * Build a site manifest from the database.
- * In the current state (no campaigns yet), returns an empty campaigns array.
- * This will be extended in Gate F when campaigns/variants are added.
- */
-export function buildManifest(site: {
+interface SiteWithCampaigns {
   id: string;
   publicKey: string;
-}): SiteManifestV1 {
+  campaigns?: Array<{
+    id: string;
+    type: string;
+    targetingJson: string | null;
+    triggerJson: string | null;
+    frequencyJson: string | null;
+    variants: Array<{
+      id: string;
+      schemaJson: string;
+    }>;
+  }>;
+}
+
+/**
+ * Build a site manifest from the database, including published campaigns.
+ */
+export function buildManifest(site: SiteWithCampaigns): SiteManifestV1 {
+  const campaigns: ManifestCampaign[] = (site.campaigns ?? []).map((campaign) => {
+    const variants: Record<string, FormSchema> = {};
+    for (const variant of campaign.variants) {
+      try {
+        variants[variant.id] = JSON.parse(variant.schemaJson) as FormSchema;
+      } catch {
+        // Skip malformed schemas
+      }
+    }
+
+    return {
+      campaignId: campaign.id,
+      type: campaign.type as "popup" | "inline",
+      targeting: campaign.targetingJson ? JSON.parse(campaign.targetingJson) : { type: "all" },
+      trigger: campaign.triggerJson ? JSON.parse(campaign.triggerJson) : { type: "immediate" },
+      frequency: campaign.frequencyJson ? JSON.parse(campaign.frequencyJson) : undefined,
+      variants,
+    };
+  });
+
   return {
     version: 1,
     siteId: site.id,
     publicKey: site.publicKey,
-    campaigns: [],
+    campaigns,
     updatedAt: new Date().toISOString(),
   };
 }
