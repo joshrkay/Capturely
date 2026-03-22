@@ -19,9 +19,22 @@ model Account {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  members AccountMember[]
-  invites Invite[]
-  sites   Site[]
+  // Billing fields (Gate E)
+  planKey               String  @default("free") @map("plan_key")
+  stripeCustomerId      String? @unique @map("stripe_customer_id")
+  stripeSubscriptionId  String? @map("stripe_subscription_id")
+  paymentStatus         String  @default("active") @map("payment_status") // active, past_due, suspended
+  paymentGraceUntil     DateTime? @map("payment_grace_until")
+  billingCycleStart     DateTime? @map("billing_cycle_start")
+  billingCycleEnd       DateTime? @map("billing_cycle_end")
+
+  members       AccountMember[]
+  invites       Invite[]
+  sites         Site[]
+  campaigns     Campaign[]
+  submissions   Submission[]
+  notifications Notification[]
+  usage         AccountUsage?
 
   @@map("accounts")
 }
@@ -80,7 +93,7 @@ model Site {
   accountId     String     @map("account_id")
   name          String
   primaryDomain String     @map("primary_domain")
-  platformType  String?    @map("platform_type") // shopify, wordpress, custom, etc.
+  platformType  String?    @map("platform_type")
   publicKey     String     @unique @map("public_key")
   secretKey     String     @map("secret_key")
   status        SiteStatus @default(active)
@@ -89,10 +102,93 @@ model Site {
 
   account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
   submissions Submission[]
+  campaigns   Campaign[]
+  webhooks    Webhook[]
 
   @@index([accountId])
   @@index([publicKey])
   @@map("sites")
+}
+
+// --- Gate F: Campaigns ---
+
+enum CampaignStatus {
+  draft
+  published
+  paused
+  archived
+}
+
+enum CampaignType {
+  popup
+  inline
+}
+
+enum OptimizationStatus {
+  idle
+  generating
+  experimenting
+  promoting
+}
+
+model Campaign {
+  id                    String             @id @default(cuid())
+  accountId             String             @map("account_id")
+  siteId                String             @map("site_id")
+  name                  String
+  type                  CampaignType       @default(popup)
+  status                CampaignStatus     @default(draft)
+  hasUnpublishedChanges Boolean            @default(true) @map("has_unpublished_changes")
+  autoOptimize          Boolean            @default(false) @map("auto_optimize")
+  optimizationStatus    OptimizationStatus @default(idle) @map("optimization_status")
+
+  // Targeting & trigger config stored as JSON
+  targetingJson String? @map("targeting_json")
+  triggerJson   String? @map("trigger_json")
+  frequencyJson String? @map("frequency_json")
+  webhookUrl    String? @map("webhook_url")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  site              Site               @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  variants          Variant[]
+  submissions       Submission[]
+  experimentEvents  ExperimentEvent[]
+  optimizationRuns  OptimizationRun[]
+
+  @@index([accountId])
+  @@index([siteId])
+  @@map("campaigns")
+}
+
+// --- Gate F: Variants ---
+
+enum VariantGeneratedBy {
+  manual
+  ai
+  auto_optimization
+}
+
+model Variant {
+  id                  String             @id @default(cuid())
+  campaignId          String             @map("campaign_id")
+  name                String             @default("Control")
+  isControl           Boolean            @default(false) @map("is_control")
+  trafficPercentage   Int                @default(100) @map("traffic_percentage")
+  schemaJson          String             @map("schema_json") // FormSchema JSON
+  schemaVersion       Int                @default(1) @map("schema_version")
+  growthbookFeatureKey String?           @map("growthbook_feature_key")
+  generatedBy         VariantGeneratedBy @default(manual) @map("generated_by")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@index([campaignId])
+  @@map("variants")
 }
 
 // --- Gate C: Submissions ---
@@ -110,30 +206,166 @@ model Submission {
   campaignId   String?          @map("campaign_id")
   variantId    String?          @map("variant_id")
   experimentId String?          @map("experiment_id")
-  submissionId String           @map("submission_id") // client-generated UUID for idempotency
+  submissionId String           @map("submission_id")
   email        String?
   phone        String?
   name         String?
-  fieldsJson   String           @map("fields_json") // JSON blob of all field values
+  fieldsJson   String           @map("fields_json")
   status       SubmissionStatus @default(new_submission)
   createdAt    DateTime         @default(now()) @map("created_at")
 
-  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  site     Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  variant  Variant?  @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@unique([siteId, submissionId])
   @@index([accountId])
   @@index([siteId])
+  @@index([campaignId])
   @@map("submissions")
 }
 
 // --- Gate C: Account Usage ---
 
 model AccountUsage {
-  id              String  @id @default(cuid())
-  accountId       String  @unique @map("account_id")
-  submissionCount Int     @default(0) @map("submission_count")
-  overageCount    Int     @default(0) @map("overage_count")
-  usageLocked     Boolean @default(false) @map("usage_locked")
+  id                String  @id @default(cuid())
+  accountId         String  @unique @map("account_id")
+  submissionCount   Int     @default(0) @map("submission_count")
+  overageCount      Int     @default(0) @map("overage_count")
+  aiGenerationsCount Int    @default(0) @map("ai_generations_count")
+  usageLocked       Boolean @default(false) @map("usage_locked")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("account_usage")
+}
+
+// --- Gate C: Webhooks ---
+
+model Webhook {
+  id        String   @id @default(cuid())
+  siteId    String   @map("site_id")
+  url       String
+  secret    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("webhooks")
+}
+
+// --- Gate D: Experiment Events ---
+
+enum ExperimentEventType {
+  impression
+  conversion
+}
+
+model ExperimentEvent {
+  id            String              @id @default(cuid())
+  visitorId     String              @map("visitor_id")
+  experimentKey String              @map("experiment_key")
+  variationId   String              @map("variation_id")
+  eventType     ExperimentEventType @map("event_type")
+  campaignId    String?             @map("campaign_id")
+  siteId        String?             @map("site_id")
+  timestamp     DateTime            @default(now())
+
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([experimentKey])
+  @@index([campaignId])
+  @@index([siteId])
+  @@index([timestamp])
+  @@map("experiment_events")
+}
+
+// --- Gate D: Notifications ---
+
+model Notification {
+  id        String    @id @default(cuid())
+  accountId String    @map("account_id")
+  type      String    // experiment_completed, usage_warning, payment_failed, etc.
+  title     String
+  body      String
+  linkUrl   String?   @map("link_url")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([accountId, readAt])
+  @@map("notifications")
+}
+
+// --- Gate E: Processed Stripe Events ---
+
+model ProcessedStripeEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique @map("event_id")
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_stripe_events")
+}
+
+// --- Gate H: Optimization Runs ---
+
+enum OptimizationRunStatus {
+  pending
+  generating
+  experimenting
+  promoting
+  completed
+  failed
+}
+
+model OptimizationRun {
+  id                      String                @id @default(cuid())
+  campaignId              String                @map("campaign_id")
+  status                  OptimizationRunStatus @default(pending)
+  currentControlVariantId String?               @map("current_control_variant_id")
+  challengerVariantIds    String[]              @map("challenger_variant_ids")
+  growthbookExperimentId  String?               @map("growthbook_experiment_id")
+  startedAt               DateTime              @default(now()) @map("started_at")
+  completedAt             DateTime?             @map("completed_at")
+
+  campaign Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  variants OptimizationRunVariant[]
+
+  @@index([campaignId])
+  @@map("optimization_runs")
+}
+
+model OptimizationRunVariant {
+  id             String  @id @default(cuid())
+  runId          String  @map("run_id")
+  variantId      String  @map("variant_id")
+  conversionRate Float?  @map("conversion_rate")
+  isWinner       Boolean @default(false) @map("is_winner")
+
+  run OptimizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("optimization_run_variants")
+}
+
+// --- Gate G: AI Generation Log ---
+
+model AiGenerationLog {
+  id           String   @id @default(cuid())
+  accountId    String   @map("account_id")
+  type         String   // form_generation, field_suggestion, copy_generation, style_suggestion, variant_generation
+  promptHash   String?  @map("prompt_hash")
+  inputContext String?  @map("input_context") @db.Text
+  outputSchema String?  @map("output_schema") @db.Text
+  tokensUsed   Int?     @map("tokens_used")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([accountId])
+  @@map("ai_generation_logs")
 }
