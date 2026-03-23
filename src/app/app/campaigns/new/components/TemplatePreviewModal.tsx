@@ -2,6 +2,7 @@
 
 import type { CampaignTemplate } from "@/lib/templates";
 import { FormPreview } from "../../[id]/builder/components/FormPreview";
+import type { FormSchema } from "@capturely/shared-forms";
 
 interface TemplatePreviewModalProps {
   template: CampaignTemplate;
@@ -17,7 +18,7 @@ export function TemplatePreviewModal({ template, onClose }: TemplatePreviewModal
           <button type="button" onClick={onClose} className="text-xs text-zinc-500">Close</button>
         </div>
         <FormPreview
-          schema={template.schema}
+          schema={template.schema as FormSchema}
           campaignType={template.type}
           displayMode={template.type === "popup" ? "popup" : "inline"}
         />
