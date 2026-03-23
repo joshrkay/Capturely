@@ -6,6 +6,7 @@ import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useS
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { StyleEditor } from "./components/style-editor";
+import { MultiStepEditor } from "./components/multi-step-editor";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ interface FormSchema {
   fields: FormField[];
   style: FormStyle;
   submitLabel: string;
+  steps?: Array<{ label: string; fieldIds: string[] }>;
+  progressBarStyle?: "dots" | "bar" | "steps" | "none";
 }
 
 interface Variant {
@@ -390,8 +393,151 @@ function AiCopilotPanel({
 
 // ─── Form Preview ─────────────────────────────────────────────────────────────
 
+function PreviewProgressBar({
+  style,
+  current,
+  total,
+}: {
+  style: FormSchema["progressBarStyle"];
+  current: number;
+  total: number;
+}) {
+  if (!style || style === "none") return null;
+
+  if (style === "dots") {
+    return (
+      <div className="mb-4 flex justify-center gap-2">
+        {Array.from({ length: total }).map((_, i) => (
+          <div
+            key={i}
+            className={`h-2 w-2 rounded-full transition-colors ${
+              i === current ? "bg-indigo-600" : "bg-zinc-300 dark:bg-zinc-600"
+            }`}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (style === "bar") {
+    const pct = Math.round(((current + 1) / total) * 100);
+    return (
+      <div className="mb-4">
+        <div className="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-700">
+          <div
+            className="h-1.5 rounded-full bg-indigo-600 transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (style === "steps") {
+    return (
+      <div className="mb-4 flex items-center justify-center gap-1">
+        {Array.from({ length: total }).map((_, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                i === current
+                  ? "bg-indigo-600 text-white"
+                  : i < current
+                  ? "bg-indigo-200 text-indigo-700"
+                  : "bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
+              }`}
+            >
+              {i + 1}
+            </div>
+            {i < total - 1 && (
+              <div className="h-px w-4 bg-zinc-300 dark:bg-zinc-600" />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function RenderField({ field, style }: { field: FormField; style: FormStyle }) {
+  if (field.type === "hidden") return null;
+  if (field.type === "textarea") {
+    return (
+      <div>
+        <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
+        <textarea placeholder={field.placeholder} className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }} rows={3} readOnly />
+      </div>
+    );
+  }
+  if (field.type === "checkbox") {
+    return (
+      <div className="flex items-center gap-2">
+        <input type="checkbox" readOnly />
+        <label className="text-sm">{field.label}</label>
+      </div>
+    );
+  }
+  if (field.type === "radio") {
+    return (
+      <div>
+        <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
+        <div className="space-y-1">
+          {(field.options ?? []).map((opt) => (
+            <div key={opt.value} className="flex items-center gap-2">
+              <input type="radio" name={field.fieldId} readOnly />
+              <span className="text-sm">{opt.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (field.type === "dropdown") {
+    return (
+      <div>
+        <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
+        <select className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }}>
+          <option>{field.placeholder ?? "Select..."}</option>
+          {(field.options ?? []).map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
+      <input
+        type={field.type}
+        placeholder={field.placeholder}
+        className="w-full rounded border px-3 py-2 text-sm"
+        style={{ borderRadius: style.borderRadius }}
+        readOnly
+      />
+    </div>
+  );
+}
+
 function FormPreview({ schema, campaignType }: { schema: FormSchema; campaignType: string }) {
   const { style } = schema;
+  const [previewStep, setPreviewStep] = useState(0);
+
+  const isMultiStep = !!(schema.steps && schema.steps.length > 1);
+  const totalSteps = isMultiStep ? schema.steps!.length : 1;
+  const clampedStep = Math.min(previewStep, totalSteps - 1);
+
+  // Fields to render
+  const visibleFields = isMultiStep
+    ? schema.steps![clampedStep].fieldIds
+        .map((fid) => schema.fields.find((f) => f.fieldId === fid))
+        .filter(Boolean) as FormField[]
+    : schema.fields.filter((f) => f.type !== "submit");
+
+  const submitField = schema.fields.find((f) => f.type === "submit");
+  const isFinalStep = !isMultiStep || clampedStep === totalSteps - 1;
 
   return (
     <div className="flex items-center justify-center p-8">
@@ -405,10 +551,64 @@ function FormPreview({ schema, campaignType }: { schema: FormSchema; campaignTyp
           padding: "24px",
         }}
       >
+        {/* Progress bar */}
+        {isMultiStep && (
+          <PreviewProgressBar
+            style={schema.progressBarStyle}
+            current={clampedStep}
+            total={totalSteps}
+          />
+        )}
+
         <div className="space-y-3">
-          {schema.fields.map((field) => {
-            if (field.type === "submit") {
-              return (
+          {/* Step fields */}
+          {visibleFields.map((field) => (
+            <RenderField key={field.fieldId} field={field} style={style} />
+          ))}
+
+          {/* Submit / navigation */}
+          {isMultiStep ? (
+            <div className="flex gap-2 pt-1">
+              {clampedStep > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewStep((s) => Math.max(0, s - 1))}
+                  className="flex-1 rounded border border-zinc-300 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  Back
+                </button>
+              )}
+              {isFinalStep ? (
+                <button
+                  type="button"
+                  style={{
+                    backgroundColor: style.buttonColor,
+                    color: style.buttonTextColor,
+                    borderRadius: style.buttonBorderRadius ?? style.borderRadius,
+                  }}
+                  className="flex-1 py-2.5 text-sm font-medium"
+                >
+                  {schema.submitLabel || submitField?.label || "Submit"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPreviewStep((s) => Math.min(totalSteps - 1, s + 1))}
+                  style={{
+                    backgroundColor: style.buttonColor,
+                    color: style.buttonTextColor,
+                    borderRadius: style.buttonBorderRadius ?? style.borderRadius,
+                  }}
+                  className="flex-1 py-2.5 text-sm font-medium"
+                >
+                  Next
+                </button>
+              )}
+            </div>
+          ) : (
+            schema.fields
+              .filter((f) => f.type === "submit")
+              .map((field) => (
                 <button
                   key={field.fieldId}
                   style={{
@@ -420,66 +620,8 @@ function FormPreview({ schema, campaignType }: { schema: FormSchema; campaignTyp
                 >
                   {schema.submitLabel || field.label}
                 </button>
-              );
-            }
-            if (field.type === "hidden") return null;
-            if (field.type === "textarea") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <textarea placeholder={field.placeholder} className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }} rows={3} readOnly />
-                </div>
-              );
-            }
-            if (field.type === "checkbox") {
-              return (
-                <div key={field.fieldId} className="flex items-center gap-2">
-                  <input type="checkbox" readOnly />
-                  <label className="text-sm">{field.label}</label>
-                </div>
-              );
-            }
-            if (field.type === "radio") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <div className="space-y-1">
-                    {(field.options ?? []).map((opt) => (
-                      <div key={opt.value} className="flex items-center gap-2">
-                        <input type="radio" name={field.fieldId} readOnly />
-                        <span className="text-sm">{opt.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            }
-            if (field.type === "dropdown") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <select className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }}>
-                    <option>{field.placeholder ?? "Select..."}</option>
-                    {(field.options ?? []).map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              );
-            }
-            return (
-              <div key={field.fieldId}>
-                <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                <input
-                  type={field.type}
-                  placeholder={field.placeholder}
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  style={{ borderRadius: style.borderRadius }}
-                  readOnly
-                />
-              </div>
-            );
-          })}
+              ))
+          )}
         </div>
       </div>
     </div>
@@ -495,7 +637,7 @@ export default function BuilderPage() {
   const [activeVariantId, setActiveVariantId] = useState<string>("");
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai">("field");
+  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps">("field");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
@@ -742,7 +884,7 @@ export default function BuilderPage() {
         {/* Right: Settings */}
         <div className="w-72 shrink-0 border-l border-zinc-200 bg-white p-3 overflow-y-auto dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex gap-1">
-            {(["field", "style", "settings", "ai"] as const).map((tab) => (
+            {(["field", "style", "steps", "settings", "ai"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -752,7 +894,7 @@ export default function BuilderPage() {
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400"
                 }`}
               >
-                {tab === "ai" ? "AI" : tab}
+                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab}
               </button>
             ))}
           </div>
@@ -775,6 +917,9 @@ export default function BuilderPage() {
               onChange={(style) => updateSchema({ ...schema, style })}
               onSubmitLabelChange={(label) => updateSchema({ ...schema, submitLabel: label })}
             />
+          )}
+          {rightTab === "steps" && (
+            <MultiStepEditor schema={schema} onSchemaChange={updateSchema} />
           )}
           {rightTab === "settings" && (
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
