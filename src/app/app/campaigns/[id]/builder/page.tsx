@@ -7,8 +7,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
-import { VariantManagerPanel } from "./_components/VariantManagerPanel";
-import { resolvePlan } from "@/lib/plans";
+import { FormPreview, type ViewportKey } from "./components/FormPreview";
+import { ViewportToggle } from "./components/ViewportToggle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -395,104 +395,6 @@ function AiCopilotPanel({
   );
 }
 
-// ─── Form Preview ─────────────────────────────────────────────────────────────
-
-function FormPreview({ schema, campaignType }: { schema: FormSchema; campaignType: string }) {
-  const { style } = schema;
-
-  return (
-    <div className="flex items-center justify-center p-8">
-      <div
-        className={`w-full max-w-md ${campaignType === "popup" ? "shadow-2xl" : "shadow-md"}`}
-        style={{
-          backgroundColor: style.backgroundColor,
-          color: style.textColor,
-          borderRadius: style.borderRadius,
-          fontFamily: style.fontFamily,
-          padding: "24px",
-        }}
-      >
-        <div className="space-y-3">
-          {schema.fields.map((field) => {
-            if (field.type === "submit") {
-              return (
-                <button
-                  key={field.fieldId}
-                  style={{
-                    backgroundColor: style.buttonColor,
-                    color: style.buttonTextColor,
-                    borderRadius: style.borderRadius,
-                  }}
-                  className="w-full py-2.5 text-sm font-medium"
-                >
-                  {schema.submitLabel || field.label}
-                </button>
-              );
-            }
-            if (field.type === "hidden") return null;
-            if (field.type === "textarea") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <textarea placeholder={field.placeholder} className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }} rows={3} readOnly />
-                </div>
-              );
-            }
-            if (field.type === "checkbox") {
-              return (
-                <div key={field.fieldId} className="flex items-center gap-2">
-                  <input type="checkbox" readOnly />
-                  <label className="text-sm">{field.label}</label>
-                </div>
-              );
-            }
-            if (field.type === "radio") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <div className="space-y-1">
-                    {(field.options ?? []).map((opt) => (
-                      <div key={opt.value} className="flex items-center gap-2">
-                        <input type="radio" name={field.fieldId} readOnly />
-                        <span className="text-sm">{opt.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            }
-            if (field.type === "dropdown") {
-              return (
-                <div key={field.fieldId}>
-                  <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                  <select className="w-full rounded border px-3 py-2 text-sm" style={{ borderRadius: style.borderRadius }}>
-                    <option>{field.placeholder ?? "Select..."}</option>
-                    {(field.options ?? []).map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              );
-            }
-            return (
-              <div key={field.fieldId}>
-                <label className="mb-1 block text-xs font-medium">{field.label}{field.required && " *"}</label>
-                <input
-                  type={field.type}
-                  placeholder={field.placeholder}
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  style={{ borderRadius: style.borderRadius }}
-                  readOnly
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Builder Page ────────────────────────────────────────────────────────
 
 export default function BuilderPage() {
@@ -506,6 +408,8 @@ export default function BuilderPage() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
+  const [viewport, setViewport] = useState<ViewportKey>("desktop");
+  const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -742,8 +646,38 @@ export default function BuilderPage() {
         </div>
 
         {/* Center: Preview */}
-        <div className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-950">
-          <FormPreview schema={schema} campaignType={campaign.type} />
+        <div className="flex-1 flex flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
+          {/* Preview toolbar */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+            <ViewportToggle value={viewport} onChange={setViewport} />
+            <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+              {(["popup", "inline"] as const).map((mode, i) => (
+                <button
+                  key={mode}
+                  onClick={() => setDisplayMode(mode)}
+                  className={[
+                    "px-3 py-1.5 text-xs capitalize focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset",
+                    i === 0 ? "border-r border-zinc-200 dark:border-zinc-800" : "",
+                    displayMode === mode
+                      ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 font-medium"
+                      : "text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <FormPreview
+              schema={schema}
+              campaignType={campaign.type as "popup" | "inline" | "slide-in" | "bar"}
+              viewport={viewport}
+              displayMode={displayMode}
+            />
+          </div>
         </div>
 
         {/* Right: Settings */}
