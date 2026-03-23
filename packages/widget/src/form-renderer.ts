@@ -44,17 +44,26 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
       const btn = document.createElement("button");
       btn.type = "submit";
       btn.textContent = schema.submitLabel ?? field.label ?? "Submit";
+      const buttonBg = style.buttonColor ?? "#1a1a1a";
       Object.assign(btn.style, {
-        backgroundColor: style.buttonColor ?? "#1a1a1a",
+        backgroundColor: buttonBg,
         color: style.buttonTextColor ?? "#ffffff",
         border: "none",
-        borderRadius: style.borderRadius ?? "6px",
+        borderRadius: style.buttonBorderRadius ?? style.borderRadius ?? "6px",
         padding: "10px 20px",
         fontSize: "14px",
         fontWeight: "600",
         cursor: "pointer",
         marginTop: "4px",
       });
+      if (style.buttonHoverColor) {
+        btn.addEventListener("mouseenter", () => {
+          btn.style.backgroundColor = style.buttonHoverColor!;
+        });
+        btn.addEventListener("mouseleave", () => {
+          btn.style.backgroundColor = buttonBg;
+        });
+      }
       wrapper.appendChild(btn);
       form.appendChild(wrapper);
       fieldElements.set(field.fieldId, wrapper);

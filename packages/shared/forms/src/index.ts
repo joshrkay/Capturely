@@ -12,6 +12,7 @@ export type {
   SiteManifestV1,
 } from "./types";
 
+export { BOX_SHADOW_MAP } from "./types";
 export { evaluateVisibility, evaluateCondition, getVisibleFields } from "./visibility";
 export { validateSubmission } from "./validation";
 export type { ValidationError, ValidationResult } from "./validation";

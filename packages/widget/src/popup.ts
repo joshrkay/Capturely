@@ -1,4 +1,5 @@
 import type { FormSchema } from "@capturely/shared-forms";
+import { BOX_SHADOW_MAP } from "@capturely/shared-forms";
 
 /** Create the popup overlay and dialog shell. Returns the container element and a close function. */
 export function createPopup(
@@ -29,14 +30,16 @@ export function createPopup(
     backgroundColor: style.backgroundColor ?? "#ffffff",
     color: style.textColor ?? "#1a1a1a",
     borderRadius: style.borderRadius ?? "8px",
-    padding: "24px",
+    padding: style.padding ?? "24px",
     maxWidth: "480px",
     width: "90%",
     maxHeight: "90vh",
     overflowY: "auto",
     position: "relative",
     fontFamily: style.fontFamily ?? "system-ui, sans-serif",
-    boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+    boxShadow: style.boxShadow
+      ? (BOX_SHADOW_MAP[style.boxShadow] ?? "none")
+      : "0 25px 50px -12px rgba(0,0,0,0.25)",
   });
 
   // Close button
