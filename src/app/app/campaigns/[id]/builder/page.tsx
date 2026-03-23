@@ -12,19 +12,20 @@ import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { resolvePlan } from "@/lib/plans";
+import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormField {
   fieldId: string;
-  type: string;
+  type: FieldType;
   label: string;
   placeholder?: string;
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
   visibilityCondition?: {
     dependsOn: string;
-    operator: string;
+    operator: "equals" | "not_equals" | "contains" | "not_empty";
     value?: string;
   };
 }
@@ -76,7 +77,7 @@ interface Campaign {
   accountPlanKey: string;
 }
 
-const FIELD_TYPES = [
+const FIELD_TYPES: { type: FieldType; label: string }[] = [
   { type: "text", label: "Text" },
   { type: "email", label: "Email" },
   { type: "phone", label: "Phone" },
@@ -470,7 +471,7 @@ export default function BuilderPage() {
     updateSchema({ ...schema, fields: arrayMove(schema.fields, oldIndex, newIndex) });
   }, [schema, updateSchema]);
 
-  const addField = useCallback((type: string) => {
+  const addField = useCallback((type: FieldType) => {
     if (!schema) return;
     const fieldId = `field_${Math.random().toString(36).slice(2, 10)}`;
     const newField: FormField = {
