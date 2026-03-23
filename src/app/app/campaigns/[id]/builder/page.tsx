@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
 
@@ -47,10 +48,13 @@ interface FormSchema {
 
 interface Variant {
   id: string;
+  campaignId: string;
   name: string;
   isControl: boolean;
   trafficPercentage: number;
   schemaJson: string;
+  schemaVersion: number;
+  generatedBy: string;
 }
 
 interface Campaign {
@@ -65,6 +69,7 @@ interface Campaign {
   frequencyJson: string | null;
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
+  accountPlanKey: string;
 }
 
 const FIELD_TYPES = [
@@ -641,6 +646,8 @@ export default function BuilderPage() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
+  const [viewport, setViewport] = useState<ViewportKey>("desktop");
+  const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -815,18 +822,18 @@ export default function BuilderPage() {
         <div className="flex items-center gap-2">
           {message && <span className="text-xs text-zinc-500">{message}</span>}
 
-          {/* Variant selector */}
-          {campaign.variants.length > 1 && (
-            <select
-              value={activeVariantId}
-              onChange={(e) => setActiveVariantId(e.target.value)}
-              className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            >
-              {campaign.variants.map((v) => (
-                <option key={v.id} value={v.id}>{v.name} ({v.trafficPercentage}%)</option>
-              ))}
-            </select>
-          )}
+          {/* Variant manager */}
+          <VariantManagerPanel
+            campaignId={campaign.id}
+            variants={campaign.variants}
+            activeVariantId={activeVariantId}
+            onActiveVariantChange={setActiveVariantId}
+            onVariantsChange={(updated) =>
+              setCampaign((prev) => prev ? { ...prev, variants: updated } : prev)
+            }
+            plan={resolvePlan(campaign.accountPlanKey)}
+            canEdit={true}
+          />
 
           <button
             onClick={handleSave}
@@ -885,8 +892,38 @@ export default function BuilderPage() {
         </div>
 
         {/* Center: Preview */}
-        <div className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-950">
-          <FormPreview schema={schema} campaignType={campaign.type} />
+        <div className="flex-1 flex flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
+          {/* Preview toolbar */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+            <ViewportToggle value={viewport} onChange={setViewport} />
+            <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+              {(["popup", "inline"] as const).map((mode, i) => (
+                <button
+                  key={mode}
+                  onClick={() => setDisplayMode(mode)}
+                  className={[
+                    "px-3 py-1.5 text-xs capitalize focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset",
+                    i === 0 ? "border-r border-zinc-200 dark:border-zinc-800" : "",
+                    displayMode === mode
+                      ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 font-medium"
+                      : "text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <FormPreview
+              schema={schema}
+              campaignType={campaign.type as "popup" | "inline" | "slide-in" | "bar"}
+              viewport={viewport}
+              displayMode={displayMode}
+            />
+          </div>
         </div>
 
         {/* Right: Settings */}
