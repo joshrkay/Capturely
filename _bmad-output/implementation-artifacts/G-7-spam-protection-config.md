@@ -5,71 +5,65 @@ Status: ready-for-dev
 ## Story
 
 As a merchant,
-I want configurable spam protection settings for my forms,
-so that I can reduce spam submissions beyond the basic honeypot.
+I want configurable spam protection settings for my campaigns beyond the basic honeypot,
+so that I can reduce spam submissions, block known bad actors, and review flagged entries
+without losing legitimate leads.
+
+Currently the only protection is a static honeypot field check (lines 69-72 in the runtime
+submit handler). This story adds rate limiting by IP, email/IP blocklists, and optional
+reCAPTCHA v3 verification — all merchant-configurable per campaign. Spam submissions are
+preserved with a `spam` status so merchants can audit false positives.
+
+## Dependencies
+
+- **BLOCKED BY:** F.2 (Builder Display Settings) — campaign builder infrastructure must exist
+  before the spam protection panel can be added to it.
+- **BLOCKS:** Nothing.
+
+## Existing Code Inventory
+
+| File | Lines | Relevance |
+|------|-------|-----------|
+| `src/app/api/runtime/submit/route.ts` | 175 | Current honeypot check (L69-72), submission create (L93-118), usage increment (L121-130) |
+| `prisma/schema.prisma` | ~240+ | `SubmissionStatus` enum (L196-200), `Campaign` model (L134-159) |
+| `src/lib/db.ts` | — | Prisma client singleton |
+| `src/lib/runtime-token.ts` | — | JWT verify for runtime endpoints |
+| `src/lib/rbac.ts` | — | `canManageCampaigns()` helper for RBAC enforcement |
+| `packages/shared/forms/` | — | Shared validation between widget and server |
+| `src/app/app/campaigns/[id]/builder/` | — | Campaign builder UI (target location for config panel) |
 
 ## Acceptance Criteria
 
-1. Spam Protection settings are accessible in campaign builder as a dedicated panel
-2. Honeypot toggle (enabled by default) — already implemented in runtime submit
-3. Rate limiting toggle with configurable threshold (N submissions per IP per hour)
-4. IP/email blocklist with add/remove entries
-5. Optional reCAPTCHA v3 integration with site key and secret key configuration
-6. Spam score threshold (0-100) for auto-flagging suspicious submissions
-7. Settings are persisted per campaign via `spamProtectionJson` column
-8. Runtime submit endpoint respects all configured protections
-9. Submissions flagged as spam are marked with `status: 'spam'` instead of `'new_submission'`
+1. `SubmissionStatus` enum includes `spam` value mapped to `"spam"` in the database.
+2. `Campaign` model has a `spamProtectionJson` nullable string column for persisting config.
+3. Default `SpamProtectionConfig` is applied when `spamProtectionJson` is null: honeypot enabled, rate limit disabled, empty blocklists, reCAPTCHA disabled.
+4. Honeypot check respects `config.honeypot.enabled` — when disabled, `_hp` field is ignored.
+5. Rate limiting tracks submissions per IP using an in-memory map; submissions exceeding `maxPerHour` are marked as `spam` (not discarded).
+6. Rate limit map entries auto-expire after the hour window resets; stale entries are cleaned on a periodic sweep.
+7. IP blocklist check runs before submission insert; matched IPs result in `status: 'spam'`.
+8. Email blocklist check runs before submission insert; matched emails result in `status: 'spam'`.
+9. When reCAPTCHA v3 is enabled, widget sends a `recaptchaToken` field; server verifies against Google's API and marks submissions below the threshold as `spam`.
+10. Spam-flagged submissions are stored in the database with `status: 'spam'` — never silently discarded — so merchants can review false positives.
+11. Dashboard submissions list can filter by `spam` status; spam submissions display a visual indicator.
+12. Campaign builder exposes a "Spam Protection" settings panel at `src/app/app/campaigns/[id]/builder/components/spam-protection.tsx`.
+13. The spam protection panel validates input (e.g., `maxPerHour` >= 1, reCAPTCHA threshold 0.0-1.0, valid IP formats in blocklist).
+14. API endpoint `PATCH /api/campaigns/[id]/spam-protection` persists config with Zod validation and RBAC (`canManageCampaigns`).
+15. Runtime submit endpoint does not leak spam detection details to the client — always returns `{ ok: true }` for spam submissions.
 
-## Codebase Analysis
+## Prisma Schema Changes
 
-### Runtime Submit Endpoint
-
-**File:** `src/app/api/runtime/submit/route.ts` (175 lines)
-
-Current flow:
-1. JWT token verification via `verifyToken()` (lines 31-47)
-2. Zod schema validation of payload (lines 50-57)
-3. Token public key match against payload `publicKey` (lines 62-67)
-4. **Honeypot check (lines 69-72):** If `fields._hp` is non-empty, silently returns `{ ok: true }` without persisting — this is the only spam protection today
-5. Site lookup by `publicKey` (lines 75-85)
-6. Common field extraction: email, phone, name (lines 88-90)
-7. Idempotent `prisma.submission.create()` — catches Prisma error `P2002` for duplicate `submissionId` (lines 93-118)
-8. Atomic `AccountUsage.submissionCount` increment via upsert (lines 121-130)
-9. Non-blocking experiment event write (lines 133-146)
-10. Non-blocking webhook fire (lines 148-162)
-
-### Current SubmissionStatus Enum
-
-**File:** `prisma/schema.prisma` (lines 196-200)
+### SubmissionStatus enum
 
 ```prisma
 enum SubmissionStatus {
   new_submission @map("new")
   read
   archived
+  spam           @map("spam")
 }
 ```
 
-### Campaign Model
-
-**File:** `prisma/schema.prisma` (lines 134-164)
-
-Currently stores `targetingJson`, `triggerJson`, `frequencyJson`, `webhookUrl` as nullable JSON string columns. The `spamProtectionJson` column follows this same pattern.
-
-## Schema Changes
-
-### 1. Add `spam` to SubmissionStatus enum
-
-```prisma
-enum SubmissionStatus {
-  new_submission @map("new")
-  read
-  archived
-  spam @map("spam")
-}
-```
-
-### 2. Add `spamProtectionJson` to Campaign model
+### Campaign model — new field
 
 Add after `webhookUrl` (line 149):
 
@@ -77,171 +71,171 @@ Add after `webhookUrl` (line 149):
 spamProtectionJson String? @map("spam_protection_json")
 ```
 
-### 3. Migration
+### Migration
 
 ```bash
 npx prisma migrate dev --name add-spam-protection
 ```
 
-## SpamProtectionConfig TypeScript Interface
+## API Contracts
+
+### PATCH /api/campaigns/[id]/spam-protection
+
+**Auth:** Clerk session, `canManageCampaigns(role)`
+
+**Request body (Zod-validated):**
 
 ```typescript
 interface SpamProtectionConfig {
   honeypot: { enabled: boolean };
-  rateLimit: {
-    enabled: boolean;
-    maxPerHour: number; // default: 10
-  };
-  blocklist: {
-    ips: string[];    // e.g., ["192.168.1.1", "10.0.0.0/24"]
-    emails: string[]; // e.g., ["spam@example.com", "*@throwaway.com"]
-  };
-  recaptcha: {
-    enabled: boolean;
-    siteKey: string;
-    secretKey: string;
-    threshold: number; // 0.0-1.0, default: 0.5
-  };
+  rateLimit: { enabled: boolean; maxPerHour: number };
+  blocklist: { ips: string[]; emails: string[] };
+  recaptcha: { enabled: boolean; siteKey: string; secretKey: string; threshold: number };
 }
 ```
 
-Default config when no `spamProtectionJson` is set:
-
-```typescript
-const DEFAULT_SPAM_CONFIG: SpamProtectionConfig = {
-  honeypot: { enabled: true },
-  rateLimit: { enabled: false, maxPerHour: 10 },
-  blocklist: { ips: [], emails: [] },
-  recaptcha: { enabled: false, siteKey: "", secretKey: "", threshold: 0.5 },
-};
+**Response 200:**
+```json
+{ "ok": true, "spamProtection": { ... } }
 ```
 
-## Implementation Details
+**Error responses:**
+- `400` — `{ "error": "Invalid config", "code": "VALIDATION_ERROR", "details": [...] }`
+- `403` — `{ "error": "Forbidden", "code": "FORBIDDEN" }`
+- `404` — `{ "error": "Campaign not found", "code": "NOT_FOUND" }`
 
-### Rate Limiting (In-Memory)
+### POST /api/runtime/submit (modified)
 
-In `src/app/api/runtime/submit/route.ts`, add at module scope:
+No contract change. Widget may optionally include `recaptchaToken` in `fields`. Response
+remains `{ ok: true, submissionId }` regardless of spam determination. The `_recaptchaToken`
+and `_hp` fields are stripped from `fieldsJson` before persistence.
 
-```typescript
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+## Component Architecture
+
+```
+src/app/app/campaigns/[id]/builder/components/
+  spam-protection.tsx          # Main spam protection config panel ("use client")
+
+src/lib/spam/
+  config.ts                    # SpamProtectionConfig type, defaults, Zod schema, parse helper
+  rate-limiter.ts              # In-memory rate limit map with cleanup
+  blocklist.ts                 # IP and email matching logic
+  recaptcha.ts                 # Google reCAPTCHA v3 server-side verification
+  evaluate.ts                  # Orchestrator: runs all checks, returns SpamVerdict
+
+src/app/api/campaigns/[id]/spam-protection/
+  route.ts                     # PATCH handler for saving config
 ```
 
-- Key: `${siteId}:${clientIp}` (IP from `req.headers.get("x-forwarded-for")` or `req.ip`)
-- On each submission: check `count >= maxPerHour` and `Date.now() < resetAt`
-- If over limit: mark as spam, do NOT reject (per usage-locking pattern: don't break live forms)
-- Resets on server restart — acceptable for Gate G; Redis upgrade deferred to production hardening
-- Cleanup: prune expired entries periodically or on access
+## UI States
 
-### reCAPTCHA v3 Verification
+| State | Behavior |
+|-------|----------|
+| Default (no config saved) | Honeypot toggle on; all others off; sensible defaults shown |
+| Honeypot toggle | On/off switch; no additional fields |
+| Rate limit toggle | Reveals `maxPerHour` number input (default: 10, min: 1, max: 1000) |
+| Blocklist section | Two textarea fields for IPs and emails, one entry per line; inline validation |
+| reCAPTCHA toggle | Reveals site key input, secret key input (masked), threshold slider (0.0-1.0, default 0.5) |
+| Saving | Save button shows spinner; all inputs disabled |
+| Save success | Toast notification "Spam protection updated" |
+| Save error | Inline error banner with message details |
+| Validation error | Red border + helper text on invalid fields (e.g., malformed IP address) |
 
-Widget-side: include reCAPTCHA script, send token in `fields._recaptchaToken`.
+## Design System
 
-Server-side verification in submit route:
+- Standard Capturely Tailwind utility classes; no custom design tokens required.
+- Toggle switches: `<Switch>` component or `<button role="switch">` with `bg-blue-600`/`bg-gray-200`.
+- Collapsible sections: existing accordion/disclosure pattern from the builder.
+- Spacing: `space-y-4` between sections, `p-4` card padding.
+- Colors: default Tailwind palette (`text-gray-900`, `bg-white`, `border-gray-200`, error `text-red-600`).
+- Threshold slider: standard `<input type="range">` with numeric display.
 
-```typescript
-async function verifyRecaptcha(token: string, secretKey: string, threshold: number): Promise<boolean> {
-  const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `secret=${secretKey}&response=${token}`,
-  });
-  const data = await res.json();
-  return data.success && data.score >= threshold;
-}
-```
+## Accessibility
 
-If verification fails: mark submission `status: 'spam'` (not rejected).
+- All toggle switches have associated `<label>` elements with descriptive text.
+- Blocklist textareas have `aria-label` and `aria-describedby` linking to validation messages.
+- reCAPTCHA threshold slider uses `role="slider"` with `aria-valuemin`, `aria-valuemax`, `aria-valuenow`.
+- Error messages use `role="alert"` and `aria-live="polite"`.
+- Keyboard navigation: all controls reachable via Tab; toggles operable with Space/Enter.
+- Focus management: after save error, focus moves to the first invalid field.
 
-### Blocklist Matching
+## Testing Plan
 
-- IP matching: exact string match against `blocklist.ips` array
-- Email matching: exact match OR wildcard domain match (`*@domain.com`)
-- If matched: mark `status: 'spam'`
+### Unit Tests
+- `spam/config.ts` — default config generation, JSON parse/serialize round-trip, malformed JSON fallback.
+- `spam/rate-limiter.ts` — count tracking, window expiry, cleanup of stale entries, concurrent access.
+- `spam/blocklist.ts` — exact IP match, case-insensitive email match, wildcard domain match, empty list passthrough.
+- `spam/recaptcha.ts` — mock Google API: score above threshold passes, below threshold marks spam, network error degrades gracefully (allows submission).
+- `spam/evaluate.ts` — orchestrator returns correct `SpamVerdict` for each check type; short-circuits on honeypot.
 
-### Modified Submit Flow
+### Integration Tests
+- Runtime submit with honeypot disabled in config: submission is stored (not discarded).
+- Runtime submit exceeding rate limit: submission stored with `status: 'spam'`.
+- Runtime submit from blocked IP: submission stored with `status: 'spam'`.
+- Runtime submit with blocked email: submission stored with `status: 'spam'`.
+- Runtime submit with low reCAPTCHA score: submission stored with `status: 'spam'`.
+- Runtime submit with all checks passing: submission stored with `status: 'new_submission'`.
+- PATCH spam protection config: valid config saved and returned; invalid config rejected with 400.
+- PATCH without `canManageCampaigns` role: returns 403.
 
-Insert spam checks between honeypot (line 72) and site lookup (line 75):
+### E2E Tests
+- Campaign builder: toggle each spam protection feature, save, reload page, verify config persistence.
+- Submissions list: filter by `spam` status, verify spam badge renders on flagged rows.
 
-1. Honeypot check (existing, lines 69-72) — silently discard, no DB write
-2. Look up site (existing)
-3. **NEW:** Look up campaign's `spamProtectionJson` if `campaignId` provided
-4. **NEW:** Parse config, apply defaults for missing fields
-5. **NEW:** Rate limit check by IP
-6. **NEW:** Blocklist check (IP + email from fields)
-7. **NEW:** reCAPTCHA verification if enabled and `fields._recaptchaToken` present
-8. **NEW:** Set `status` variable: `'spam'` if any check failed, `'new_submission'` otherwise
-9. Create submission with computed `status` (modify existing create call at line 94)
-10. Only increment `AccountUsage.submissionCount` if status is NOT `'spam'`
+## Anti-Patterns to Avoid
 
-Key principle: spam submissions are still persisted (merchant can review them) but do NOT count toward usage limits.
+- **Do NOT discard spam submissions** — always persist with `status: 'spam'` so merchants can review.
+- **Do NOT leak detection signals** — runtime endpoint must return `{ ok: true }` even for spam.
+- **Do NOT use persistent storage for rate limiting** — in-memory map is intentional for Gate G; avoids DB write amplification on the hot path. Redis is a future enhancement.
+- **Do NOT store reCAPTCHA secret key in client-accessible code** — it stays in `spamProtectionJson` on the server; only `siteKey` is exposed to the widget manifest.
+- **Do NOT block the submission response on slow reCAPTCHA verification** — if Google API exceeds 2s timeout, degrade gracefully and allow the submission through.
+- **Do NOT use `any` types** — all spam config and verdict types must be fully typed with TypeScript strict mode.
+- **Do NOT increment usage counters for spam submissions** — spam should not count toward plan limits.
 
-### Spam Submissions in Dashboard
+## Tasks
 
-- Submissions page should filter by status — `spam` submissions hidden by default
-- Add "Spam" filter tab alongside existing status filters
-- Merchant can manually mark submissions as spam or not-spam
-
-## Tasks / Subtasks
-
-- [ ] Add `spam` to `SubmissionStatus` enum in `prisma/schema.prisma` (line 199)
-- [ ] Add `spamProtectionJson` to `Campaign` model in `prisma/schema.prisma` (after line 149)
-- [ ] Run migration: `npx prisma migrate dev --name add-spam-protection`
-- [ ] Create `src/lib/spam-protection.ts` — config parsing, rate limit, blocklist, reCAPTCHA helpers
-- [ ] Update `src/app/api/runtime/submit/route.ts`:
-  - [ ] Load campaign's spam config after site lookup
-  - [ ] Apply rate limit check
-  - [ ] Apply blocklist check
-  - [ ] Apply reCAPTCHA verification
-  - [ ] Pass computed `status` to submission create
-  - [ ] Skip usage increment for spam submissions
-- [ ] Create `src/app/app/campaigns/[id]/builder/components/spam-protection.tsx` — client component
-  - [ ] Honeypot toggle (on/off)
-  - [ ] Rate limiting section: toggle + `maxPerHour` number input
-  - [ ] Blocklist section: IP list and email list with add/remove
-  - [ ] reCAPTCHA section: toggle + site key input + secret key input + threshold slider
-- [ ] Update campaign PATCH API to accept and validate `spamProtectionJson`
-- [ ] Add Zod validation schema for `SpamProtectionConfig`
-
-## UI Component: `spam-protection.tsx`
-
-- `"use client"` directive required (interactive form controls)
-- Receives `campaignId` and current `spamProtectionJson` as props
-- Sections in collapsible panels:
-  1. **Honeypot** — single toggle, label: "Enable honeypot field (recommended)"
-  2. **Rate Limiting** — toggle + number input for max submissions per IP per hour
-  3. **Blocklist** — two text areas or tag-input lists (IPs, emails) with add/remove
-  4. **reCAPTCHA v3** — toggle + text inputs for site key / secret key + slider for threshold (0.0-1.0)
-- Save button PATCHes campaign with serialized JSON
-- Validation: threshold must be 0.0-1.0, maxPerHour must be positive integer, IPs must be valid format
-
-## Dependencies
-
-- **BLOCKED BY:** F.2 (extraction pattern — campaign builder must support config panels)
-- **BLOCKS:** Nothing
+1. **Schema: add spam status** — Add `spam @map("spam")` to `SubmissionStatus` enum in `prisma/schema.prisma` (after line 199).
+2. **Schema: add spamProtectionJson** — Add `spamProtectionJson String? @map("spam_protection_json")` to `Campaign` model (after `webhookUrl` line 149).
+3. **Run migration** — `npx prisma migrate dev --name add-spam-protection` and verify generated SQL.
+4. **Type definitions** — Create `src/lib/spam/config.ts` with `SpamProtectionConfig` interface, `SpamVerdict` type, `DEFAULT_SPAM_CONFIG` constant, Zod schema, and `parseSpamConfig(json: string | null)` helper.
+5. **Rate limiter module** — Create `src/lib/spam/rate-limiter.ts` with in-memory `Map<string, { count: number; resetAt: number }>`, `checkRateLimit(key, maxPerHour): boolean`, and periodic stale-entry cleanup via `setInterval`.
+6. **Blocklist module** — Create `src/lib/spam/blocklist.ts` with `isBlockedIp(ip, list): boolean` and `isBlockedEmail(email, list): boolean` (case-insensitive, wildcard domain support).
+7. **reCAPTCHA verifier** — Create `src/lib/spam/recaptcha.ts` with `verifyRecaptcha(token, secretKey, threshold): Promise<boolean>` calling Google's `siteverify` API with a 2s `AbortSignal.timeout`.
+8. **Spam evaluator** — Create `src/lib/spam/evaluate.ts` orchestrator that runs honeypot, rate limit, blocklist, and reCAPTCHA checks in order; returns `{ isSpam: boolean; reason: string | null }`. Short-circuits on first match.
+9. **Refactor runtime submit: load config** — After site lookup, fetch campaign's `spamProtectionJson` if `campaignId` is provided. Parse with `parseSpamConfig()`.
+10. **Refactor runtime submit: integrate evaluator** — Replace hardcoded honeypot check (lines 69-72) with call to `evaluate()`. Strip `_hp` and `_recaptchaToken` from fields before persistence.
+11. **Refactor runtime submit: spam status** — Pass computed `status` (`'spam'` or `'new_submission'`) to `prisma.submission.create`. Skip `AccountUsage` increment when status is `'spam'`.
+12. **Update submit Zod schema** — Add optional `recaptchaToken` string field to `submitSchema`.
+13. **PATCH API route** — Create `src/app/api/campaigns/[id]/spam-protection/route.ts` with Zod validation, Clerk auth, `canManageCampaigns` RBAC, and `prisma.campaign.update`.
+14. **Spam protection UI panel** — Build `src/app/app/campaigns/[id]/builder/components/spam-protection.tsx` as a `"use client"` component with toggle sections for honeypot, rate limit, blocklist, and reCAPTCHA.
+15. **Wire UI to API** — Add `fetch` call from panel to PATCH endpoint on save; handle loading, success toast, and error banner states.
+16. **Submissions list: spam filter** — Add `spam` option to status filter dropdown; render a spam badge on flagged rows; hide spam by default.
+17. **Widget reCAPTCHA support** — Update `widget.js` to load reCAPTCHA v3 script when `siteKey` is present in manifest; include `recaptchaToken` in submit payload.
+18. **Unit tests** — Write tests for `config.ts`, `rate-limiter.ts`, `blocklist.ts`, `recaptcha.ts`, and `evaluate.ts`.
+19. **Integration tests** — Test runtime submit with each spam check path (honeypot, rate limit, blocklist, reCAPTCHA, clean) and PATCH endpoint (valid, invalid, forbidden).
 
 ## Dev Notes
 
-- Honeypot already implemented in runtime submit (lines 69-72) — silently discards, returns `{ ok: true }`
-- Keep all spam protection logic server-side — never expose thresholds or secret keys to client bundle
-- reCAPTCHA secret key stored in `spamProtectionJson` — consider encrypting at rest in a future iteration
-- Rate limit map is per-process; in a multi-instance deployment, each instance has its own map
-- The `_recaptchaToken` field should be stripped from `fields` before persisting to `fieldsJson`
+- The in-memory rate limit map resets on every Vercel serverless cold start. This is acceptable for Gate G — persistent rate limiting (e.g., Redis/Upstash) is deferred to production hardening.
+- reCAPTCHA v3 is invisible to users; no checkbox or challenge is shown. The widget loads the script and executes `grecaptcha.execute()` on form submit.
+- The `spamProtectionJson` column stores the full config as a JSON string, parsed on each submission. This avoids schema migrations when new spam features are added later.
+- Blocklist email matching is case-insensitive. IP matching is exact string comparison (CIDR support is a stretch goal).
+- The spam evaluator short-circuits: if honeypot triggers, skip remaining checks.
+- The `_hp` and `_recaptchaToken` fields must be stripped from `fieldsJson` before storage regardless of config state.
+- Spam submissions are never counted toward `AccountUsage.submissionCount` to avoid penalizing merchants.
+- reCAPTCHA secret key is stored in `spamProtectionJson` — consider encrypting at rest in a future iteration.
+- Rate limit map key format: `${siteId}:${clientIp}` using IP from `x-forwarded-for` header.
 
-### Project Structure Notes
+## References
 
-- New file: `src/lib/spam-protection.ts`
-- New file: `src/app/app/campaigns/[id]/builder/components/spam-protection.tsx`
-- Touches: `prisma/schema.prisma`, `src/app/api/runtime/submit/route.ts`
-- Touches: campaign PATCH API for saving config
-
-### References
-
-- [Source: src/app/api/runtime/submit/route.ts — 175 lines, honeypot at lines 69-72]
-- [Source: prisma/schema.prisma — SubmissionStatus enum at lines 196-200, Campaign model at lines 134-164]
+- Runtime submit handler: `src/app/api/runtime/submit/route.ts` (175 lines, honeypot at L69-72)
+- Prisma schema: `prisma/schema.prisma` (SubmissionStatus L196-200, Campaign L134-159)
+- RBAC helpers: `src/lib/rbac.ts`
+- Widget source: `packages/widget/`
+- PRD: `docs/PRD.md`
 
 ## Dev Agent Record
 
-### Agent Model Used
-### Debug Log References
-### Completion Notes List
-### File List
+| Date | Agent | Action | Notes |
+|------|-------|--------|-------|
+| 2026-03-23 | BMAD | Story authored | Comprehensive G.7 story with schema, API, UI, testing, and 19 tasks |
