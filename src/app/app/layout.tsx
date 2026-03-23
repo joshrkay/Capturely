@@ -6,6 +6,7 @@ import { BillingGuard } from "./billing-guard";
 const navLinks = [
   { href: "/app", label: "Dashboard" },
   { href: "/app/campaigns", label: "Campaigns" },
+  { href: "/app/templates", label: "Templates" },
   { href: "/app/sites", label: "Sites" },
   { href: "/app/submissions", label: "Submissions" },
   { href: "/app/analytics", label: "Analytics" },
