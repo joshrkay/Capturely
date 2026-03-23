@@ -6,6 +6,7 @@ import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useS
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
+import { StyleEditor } from "./components/style-editor";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { resolvePlan } from "@/lib/plans";
 
