@@ -724,7 +724,15 @@ export default function BuilderPage() {
 
   const deleteField = useCallback((fieldId: string) => {
     if (!schema) return;
-    updateSchema({ ...schema, fields: schema.fields.filter((f) => f.fieldId !== fieldId) });
+    const updatedSteps = schema.steps?.map((step) => ({
+      ...step,
+      fieldIds: step.fieldIds.filter((id) => id !== fieldId),
+    }));
+    updateSchema({
+      ...schema,
+      fields: schema.fields.filter((f) => f.fieldId !== fieldId),
+      steps: updatedSteps,
+    });
     setSelectedFieldId(null);
   }, [schema, updateSchema]);
 
