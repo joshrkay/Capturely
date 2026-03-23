@@ -105,6 +105,19 @@ export interface FrequencyConfig {
   maxShows?: number;
 }
 
+/** Device targeting */
+export type DeviceTarget = "all" | "desktop" | "mobile" | "tablet";
+
+/** Full targeting configuration (stored in targetingJson) */
+export interface TargetingConfig {
+  rules: TargetingRule[];
+  device?: DeviceTarget;
+  schedule?: {
+    startDate?: string;
+    endDate?: string;
+  };
+}
+
 /** A single campaign in the manifest */
 export interface ManifestCampaign {
   campaignId: string;

@@ -8,6 +8,8 @@ export type {
   TargetingRule,
   TriggerConfig,
   FrequencyConfig,
+  DeviceTarget,
+  TargetingConfig,
   ManifestCampaign,
   SiteManifestV1,
 } from "./types";
