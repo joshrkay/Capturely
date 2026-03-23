@@ -1,6 +1,17 @@
 "use client";
 
-import type { FormStyle } from "@capturely/shared-forms";
+interface FormStyle {
+  backgroundColor: string;
+  textColor: string;
+  buttonColor: string;
+  buttonTextColor: string;
+  borderRadius: string;
+  fontFamily: string;
+  padding?: string;
+  buttonBorderRadius?: string;
+  buttonHoverColor?: string;
+  boxShadow?: string;
+}
 
 export interface StyleEditorProps {
   style: FormStyle;

@@ -4,6 +4,7 @@ export type {
   VisibilityCondition,
   FormField,
   FormStyle,
+  FormStep,
   FormSchema,
   TargetingRule,
   TriggerConfig,

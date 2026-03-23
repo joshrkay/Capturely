@@ -71,11 +71,22 @@ export const BOX_SHADOW_MAP: Record<string, string> = {
   xl: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
 };
 
+/** A single step in a multi-step form */
+export interface FormStep {
+  label: string;
+  /** Ordered list of fieldIds belonging to this step */
+  fieldIds: string[];
+}
+
 /** Complete schema for a form variant */
 export interface FormSchema {
   fields: FormField[];
   style?: FormStyle;
   submitLabel?: string;
+  /** Multi-step configuration. Omit or set undefined for single-step forms. */
+  steps?: FormStep[];
+  /** Progress indicator style. Only used when steps is defined. */
+  progressBarStyle?: "dots" | "bar" | "steps" | "none";
 }
 
 /** URL targeting rule */

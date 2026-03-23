@@ -14,6 +14,106 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
   const style = schema.style ?? {};
   const formValues: Record<string, string> = {};
 
+  // ── Multi-step state ───────────────────────────────────────────────────────
+  const isMultiStep = !!(schema.steps && schema.steps.length > 1);
+  let currentStep = 0;
+  const totalSteps = isMultiStep ? schema.steps!.length : 1;
+
+  // Build a map of fieldId → step index for O(1) lookups
+  const fieldStepMap: Map<string, number> = new Map();
+  if (isMultiStep) {
+    for (let si = 0; si < schema.steps!.length; si++) {
+      for (const fid of schema.steps![si].fieldIds) {
+        fieldStepMap.set(fid, si);
+      }
+    }
+  }
+
+  // ── Progress bar ───────────────────────────────────────────────────────────
+  let progressBar: HTMLElement | null = null;
+
+  function createProgressBar(): HTMLElement {
+    const pb = document.createElement("div");
+    pb.setAttribute("data-capturely-progress", "");
+    Object.assign(pb.style, { marginBottom: "16px" });
+    updateProgressBar(pb);
+    return pb;
+  }
+
+  function updateProgressBar(pb: HTMLElement) {
+    pb.innerHTML = "";
+    const barStyle = schema.progressBarStyle ?? "dots";
+    if (barStyle === "none") return;
+
+    if (barStyle === "dots") {
+      Object.assign(pb.style, { display: "flex", justifyContent: "center", gap: "8px" });
+      for (let i = 0; i < totalSteps; i++) {
+        const dot = document.createElement("div");
+        Object.assign(dot.style, {
+          width: "8px",
+          height: "8px",
+          borderRadius: "50%",
+          backgroundColor: i === currentStep ? "#4f46e5" : "#d4d4d8",
+          transition: "background-color 0.2s",
+        });
+        pb.appendChild(dot);
+      }
+      return;
+    }
+
+    if (barStyle === "bar") {
+      Object.assign(pb.style, { display: "block" });
+      const track = document.createElement("div");
+      Object.assign(track.style, {
+        width: "100%",
+        height: "4px",
+        borderRadius: "9999px",
+        backgroundColor: "#e4e4e7",
+        overflow: "hidden",
+      });
+      const fill = document.createElement("div");
+      const pct = Math.round(((currentStep + 1) / totalSteps) * 100);
+      Object.assign(fill.style, {
+        height: "100%",
+        borderRadius: "9999px",
+        backgroundColor: "#4f46e5",
+        width: `${pct}%`,
+        transition: "width 0.3s",
+      });
+      track.appendChild(fill);
+      pb.appendChild(track);
+      return;
+    }
+
+    if (barStyle === "steps") {
+      Object.assign(pb.style, { display: "flex", justifyContent: "center", alignItems: "center", gap: "4px" });
+      for (let i = 0; i < totalSteps; i++) {
+        const circle = document.createElement("div");
+        Object.assign(circle.style, {
+          width: "24px",
+          height: "24px",
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "11px",
+          fontWeight: "600",
+          backgroundColor: i === currentStep ? "#4f46e5" : i < currentStep ? "#c7d2fe" : "#e4e4e7",
+          color: i === currentStep ? "#ffffff" : i < currentStep ? "#4338ca" : "#71717a",
+          transition: "background-color 0.2s",
+        });
+        circle.textContent = String(i + 1);
+        pb.appendChild(circle);
+        if (i < totalSteps - 1) {
+          const line = document.createElement("div");
+          Object.assign(line.style, { width: "16px", height: "1px", backgroundColor: "#d4d4d8" });
+          pb.appendChild(line);
+        }
+      }
+    }
+  }
+
+  // ── Build form ─────────────────────────────────────────────────────────────
   const form = document.createElement("form");
   form.setAttribute("novalidate", "");
   Object.assign(form.style, {
@@ -23,6 +123,7 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
   });
 
   const fieldElements: Map<string, HTMLElement> = new Map();
+  let submitWrapper: HTMLElement | null = null;
 
   for (const field of schema.fields) {
     const wrapper = document.createElement("div");
@@ -41,30 +142,34 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
     }
 
     if (field.type === "submit") {
-      const btn = document.createElement("button");
-      btn.type = "submit";
-      btn.textContent = schema.submitLabel ?? field.label ?? "Submit";
-      const buttonBg = style.buttonColor ?? "#1a1a1a";
-      Object.assign(btn.style, {
-        backgroundColor: buttonBg,
-        color: style.buttonTextColor ?? "#ffffff",
-        border: "none",
-        borderRadius: style.buttonBorderRadius ?? style.borderRadius ?? "6px",
-        padding: "10px 20px",
-        fontSize: "14px",
-        fontWeight: "600",
-        cursor: "pointer",
-        marginTop: "4px",
-      });
-      if (style.buttonHoverColor) {
-        btn.addEventListener("mouseenter", () => {
-          btn.style.backgroundColor = style.buttonHoverColor!;
+      submitWrapper = wrapper;
+      if (!isMultiStep) {
+        const btn = document.createElement("button");
+        btn.type = "submit";
+        btn.textContent = schema.submitLabel ?? field.label ?? "Submit";
+        const buttonBg = style.buttonColor ?? "#1a1a1a";
+        Object.assign(btn.style, {
+          backgroundColor: buttonBg,
+          color: style.buttonTextColor ?? "#ffffff",
+          border: "none",
+          borderRadius: style.buttonBorderRadius ?? style.borderRadius ?? "6px",
+          padding: "10px 20px",
+          fontSize: "14px",
+          fontWeight: "600",
+          cursor: "pointer",
+          marginTop: "4px",
+          width: "100%",
         });
-        btn.addEventListener("mouseleave", () => {
-          btn.style.backgroundColor = buttonBg;
-        });
+        if (style.buttonHoverColor) {
+          btn.addEventListener("mouseenter", () => {
+            btn.style.backgroundColor = style.buttonHoverColor!;
+          });
+          btn.addEventListener("mouseleave", () => {
+            btn.style.backgroundColor = buttonBg;
+          });
+        }
+        wrapper.appendChild(btn);
       }
-      wrapper.appendChild(btn);
       form.appendChild(wrapper);
       fieldElements.set(field.fieldId, wrapper);
       continue;
@@ -107,7 +212,183 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
     fieldElements.set(field.fieldId, wrapper);
   }
 
-  // Visibility management
+  // ── Step navigation injection ──────────────────────────────────────────────
+  let stepErrorEl: HTMLElement | null = null;
+
+  function renderNavigation() {
+    if (!submitWrapper || !isMultiStep) return;
+    submitWrapper.innerHTML = "";
+
+    const buttonRadius = style.buttonBorderRadius ?? style.borderRadius ?? "6px";
+    const buttonBg = style.buttonColor ?? "#1a1a1a";
+    const buttonText = style.buttonTextColor ?? "#ffffff";
+
+    const navRow = document.createElement("div");
+    Object.assign(navRow.style, { display: "flex", gap: "8px", marginTop: "4px" });
+
+    if (currentStep > 0) {
+      const backBtn = document.createElement("button");
+      backBtn.type = "button";
+      backBtn.textContent = "Back";
+      Object.assign(backBtn.style, {
+        flex: "1",
+        padding: "10px 20px",
+        fontSize: "14px",
+        fontWeight: "600",
+        cursor: "pointer",
+        border: "1px solid #d4d4d8",
+        borderRadius: buttonRadius,
+        backgroundColor: "transparent",
+        color: "#3f3f46",
+      });
+      backBtn.addEventListener("click", goBack);
+      navRow.appendChild(backBtn);
+    }
+
+    const primaryBtn = document.createElement("button");
+    primaryBtn.type = "button";
+    const isFinal = currentStep === totalSteps - 1;
+    primaryBtn.textContent = isFinal
+      ? (schema.submitLabel ?? "Submit")
+      : "Next";
+    Object.assign(primaryBtn.style, {
+      flex: "1",
+      backgroundColor: buttonBg,
+      color: buttonText,
+      border: "none",
+      borderRadius: buttonRadius,
+      padding: "10px 20px",
+      fontSize: "14px",
+      fontWeight: "600",
+      cursor: "pointer",
+    });
+    if (style.buttonHoverColor) {
+      primaryBtn.addEventListener("mouseenter", () => {
+        primaryBtn.style.backgroundColor = style.buttonHoverColor!;
+      });
+      primaryBtn.addEventListener("mouseleave", () => {
+        primaryBtn.style.backgroundColor = buttonBg;
+      });
+    }
+    primaryBtn.addEventListener("click", isFinal ? handleFinalSubmit : goNext);
+    navRow.appendChild(primaryBtn);
+
+    submitWrapper.appendChild(navRow);
+
+    // Error message element
+    stepErrorEl = document.createElement("div");
+    Object.assign(stepErrorEl.style, {
+      display: "none",
+      color: "#ef4444",
+      fontSize: "12px",
+      marginTop: "4px",
+    });
+    submitWrapper.appendChild(stepErrorEl);
+  }
+
+  // ── Step visibility ────────────────────────────────────────────────────────
+
+  function applyStepVisibility() {
+    for (const field of schema.fields) {
+      if (field.type === "hidden") continue;
+      const el = fieldElements.get(field.fieldId);
+      if (!el) continue;
+      if (field.type === "submit") continue; // handled by renderNavigation
+
+      const stepIdx = fieldStepMap.get(field.fieldId);
+      if (stepIdx === undefined) {
+        // Unassigned field — hide it
+        el.style.display = "none";
+      } else {
+        el.style.display = stepIdx === currentStep ? "" : "none";
+      }
+    }
+  }
+
+  // ── Per-step validation ────────────────────────────────────────────────────
+
+  function validateCurrentStep(): boolean {
+    const currentFieldIds = schema.steps![currentStep].fieldIds;
+    for (const fid of currentFieldIds) {
+      const field = schema.fields.find((f) => f.fieldId === fid);
+      if (!field || !field.required) continue;
+      const el = fieldElements.get(fid);
+      if (!el || el.style.display === "none") continue;
+      const value = formValues[fid] ?? "";
+      if (value.trim().length === 0) return false;
+    }
+    return true;
+  }
+
+  function goNext() {
+    if (!validateCurrentStep()) {
+      if (stepErrorEl) {
+        stepErrorEl.textContent = "Please fill in all required fields before continuing.";
+        stepErrorEl.style.display = "block";
+      }
+      return;
+    }
+    if (stepErrorEl) stepErrorEl.style.display = "none";
+    currentStep = Math.min(totalSteps - 1, currentStep + 1);
+    applyStepVisibility();
+    if (progressBar) updateProgressBar(progressBar);
+    renderNavigation();
+  }
+
+  function goBack() {
+    currentStep = Math.max(0, currentStep - 1);
+    if (stepErrorEl) stepErrorEl.style.display = "none";
+    applyStepVisibility();
+    if (progressBar) updateProgressBar(progressBar);
+    renderNavigation();
+  }
+
+  function handleFinalSubmit() {
+    if (!validateCurrentStep()) {
+      if (stepErrorEl) {
+        stepErrorEl.textContent = "Please fill in all required fields before submitting.";
+        stepErrorEl.style.display = "block";
+      }
+      return;
+    }
+    submitForm();
+  }
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
+  function submitForm() {
+    const payload: Record<string, string> = {};
+    for (const field of schema.fields) {
+      if (field.type === "submit") continue;
+      const el = fieldElements.get(field.fieldId);
+      // For multi-step, collect all fields that are not hidden by visibility condition
+      if (field.type === "hidden") {
+        payload[field.fieldId] = formValues[field.fieldId] ?? "";
+        continue;
+      }
+      if (el && el.style.display !== "none") {
+        payload[field.fieldId] = formValues[field.fieldId] ?? "";
+      }
+    }
+    onSubmit(payload);
+  }
+
+  // Single-step submit handler (non-multi-step path)
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (isMultiStep) return; // handled by button click
+    const payload: Record<string, string> = {};
+    for (const field of schema.fields) {
+      if (field.type === "submit") continue;
+      const el = fieldElements.get(field.fieldId);
+      if (el && el.style.display !== "none") {
+        payload[field.fieldId] = formValues[field.fieldId] ?? "";
+      }
+    }
+    onSubmit(payload);
+  });
+
+  // ── Visibility management (conditional logic) ──────────────────────────────
   function updateVisibility() {
     for (const field of schema.fields) {
       const el = fieldElements.get(field.fieldId);
@@ -130,30 +411,31 @@ export function renderForm({ schema, container, onSubmit }: FormRendererOptions)
             visible = depValue.trim().length > 0;
             break;
         }
-        el.style.display = visible ? "" : "none";
+        // For multi-step: only show if also in current step
+        if (isMultiStep) {
+          const stepIdx = fieldStepMap.get(field.fieldId);
+          el.style.display = visible && stepIdx === currentStep ? "" : "none";
+        } else {
+          el.style.display = visible ? "" : "none";
+        }
       }
     }
   }
 
-  // Submit handler
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    // Build payload from visible fields only
-    const payload: Record<string, string> = {};
-    for (const field of schema.fields) {
-      if (field.type === "submit") continue;
-      const el = fieldElements.get(field.fieldId);
-      if (el && el.style.display !== "none") {
-        payload[field.fieldId] = formValues[field.fieldId] ?? "";
-      }
-    }
-    onSubmit(payload);
-  });
+  // ── Mount ──────────────────────────────────────────────────────────────────
+
+  if (isMultiStep) {
+    progressBar = createProgressBar();
+    container.appendChild(progressBar);
+    applyStepVisibility();
+    renderNavigation();
+  }
 
   container.appendChild(form);
   updateVisibility();
 
   return () => {
+    if (progressBar) progressBar.remove();
     form.remove();
   };
 }

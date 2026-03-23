@@ -7,21 +7,25 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
+import { MultiStepEditor } from "./components/multi-step-editor";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
+import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import { resolvePlan } from "@/lib/plans";
+import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormField {
   fieldId: string;
-  type: string;
+  type: FieldType;
   label: string;
   placeholder?: string;
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
   visibilityCondition?: {
     dependsOn: string;
-    operator: string;
+    operator: "equals" | "not_equals" | "contains" | "not_empty";
     value?: string;
   };
 }
@@ -43,6 +47,8 @@ interface FormSchema {
   fields: FormField[];
   style: FormStyle;
   submitLabel: string;
+  steps?: Array<{ label: string; fieldIds: string[] }>;
+  progressBarStyle?: "dots" | "bar" | "steps" | "none";
 }
 
 interface Variant {
@@ -71,7 +77,7 @@ interface Campaign {
   accountPlanKey: string;
 }
 
-const FIELD_TYPES = [
+const FIELD_TYPES: { type: FieldType; label: string }[] = [
   { type: "text", label: "Text" },
   { type: "email", label: "Email" },
   { type: "phone", label: "Phone" },
@@ -257,7 +263,7 @@ function FieldSettingsPanel({
                   value={field.visibilityCondition.operator}
                   onChange={(e) => onChange({
                     ...field,
-                    visibilityCondition: { ...field.visibilityCondition!, operator: e.target.value },
+                    visibilityCondition: { ...field.visibilityCondition!, operator: e.target.value as "equals" | "not_equals" | "contains" | "not_empty" },
                   })}
                   className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 >
@@ -395,6 +401,7 @@ function AiCopilotPanel({
   );
 }
 
+
 // ─── Main Builder Page ────────────────────────────────────────────────────────
 
 export default function BuilderPage() {
@@ -404,7 +411,7 @@ export default function BuilderPage() {
   const [activeVariantId, setActiveVariantId] = useState<string>("");
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai">("field");
+  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps">("field");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
@@ -464,7 +471,7 @@ export default function BuilderPage() {
     updateSchema({ ...schema, fields: arrayMove(schema.fields, oldIndex, newIndex) });
   }, [schema, updateSchema]);
 
-  const addField = useCallback((type: string) => {
+  const addField = useCallback((type: FieldType) => {
     if (!schema) return;
     const fieldId = `field_${Math.random().toString(36).slice(2, 10)}`;
     const newField: FormField = {
@@ -493,7 +500,15 @@ export default function BuilderPage() {
 
   const deleteField = useCallback((fieldId: string) => {
     if (!schema) return;
-    updateSchema({ ...schema, fields: schema.fields.filter((f) => f.fieldId !== fieldId) });
+    const updatedSteps = schema.steps?.map((step) => ({
+      ...step,
+      fieldIds: step.fieldIds.filter((id) => id !== fieldId),
+    }));
+    updateSchema({
+      ...schema,
+      fields: schema.fields.filter((f) => f.fieldId !== fieldId),
+      steps: updatedSteps,
+    });
     setSelectedFieldId(null);
   }, [schema, updateSchema]);
 
@@ -683,7 +698,7 @@ export default function BuilderPage() {
         {/* Right: Settings */}
         <div className="w-72 shrink-0 border-l border-zinc-200 bg-white p-3 overflow-y-auto dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex gap-1">
-            {(["field", "style", "settings", "ai"] as const).map((tab) => (
+            {(["field", "style", "steps", "settings", "ai"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -693,7 +708,7 @@ export default function BuilderPage() {
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400"
                 }`}
               >
-                {tab === "ai" ? "AI" : tab}
+                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab}
               </button>
             ))}
           </div>
@@ -716,6 +731,9 @@ export default function BuilderPage() {
               onChange={(style) => updateSchema({ ...schema, style })}
               onSubmitLabelChange={(label) => updateSchema({ ...schema, submitLabel: label })}
             />
+          )}
+          {rightTab === "steps" && (
+            <MultiStepEditor schema={schema} onSchemaChange={updateSchema} />
           )}
           {rightTab === "settings" && (
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
