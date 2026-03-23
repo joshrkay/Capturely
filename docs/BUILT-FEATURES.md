@@ -1,6 +1,6 @@
 # Capturely — Built Features & Product Direction
 
-> Last updated: 2026-03-22
+> Last updated: 2026-03-23
 
 ---
 
@@ -353,6 +353,135 @@ Triggers on PR to main. Steps:
 - Email notifications via Resend
 - Webhook system (Zapier/Make integration)
 - Submission event streaming
+
+---
+
+## Figma Prototype vs Codebase Comparison
+
+> Source: [Figma Make — Cross-Platform Popup Builder](https://www.figma.com/make/sJp7d3EYGNYTF7I8o9y5iy/Cross-Platform-Popup-Builder)
+> Last compared: 2026-03-23
+
+The Figma Make prototype defines the full product vision. This section maps every Figma feature to its codebase implementation status.
+
+### Legend
+
+| Status | Meaning |
+|--------|---------|
+| **Built** | Feature exists in codebase and is functional |
+| **Partial** | Feature exists but is incomplete vs. Figma spec |
+| **Not Built** | Feature exists only in Figma prototype |
+| **Codebase Only** | Feature exists in codebase but not in Figma |
+
+---
+
+### Pages
+
+| Figma Page | Figma Source | Codebase Location | Status | Gap Notes |
+|------------|-------------|-------------------|--------|-----------|
+| Dashboard | `pages/dashboard.tsx` | `src/app/app/page.tsx` | **Partial** | Codebase has simple welcome page; Figma has campaign stats cards, recent activity feed, quick actions |
+| Templates Gallery | `pages/templates.tsx` | — | **Not Built** | Figma has template browsing by category, preview cards, "Use Template" flow |
+| Campaign Builder | `pages/builder.tsx` | `src/app/app/campaigns/[id]/builder/page.tsx` | **Partial** | Codebase has basic field drag-and-drop; Figma has full tabbed builder (Fields, Style, Display, Variants, Preview) |
+| Analytics (per-campaign) | `pages/analytics.tsx` | `src/app/app/campaigns/[id]/analytics/page.tsx` | **Partial** | Codebase has basic stats; Figma has richer charts, variant comparison, statistical significance |
+| Analytics Overview | `pages/analytics-overview.tsx` | `src/app/app/analytics/page.tsx` | **Partial** | Codebase has overview with daily chart; Figma has cross-campaign comparison, funnel analysis |
+| Submissions | `pages/submissions.tsx` | `src/app/app/submissions/page.tsx` | **Built** | Both have paginated, filterable submission tables |
+| Settings | `pages/settings.tsx` | `src/app/app/settings/team/page.tsx` | **Partial** | Codebase only has team settings; Figma has account settings, notification preferences, API keys, danger zone |
+| Integrations | `pages/integrations.tsx` | — | **Not Built** | Figma has integration cards (Shopify, WordPress, Zapier, Webhooks) with connect/configure flows |
+| Embed Page | `pages/embed.tsx` | — | **Not Built** | Figma has code snippet generator, platform-specific install instructions, preview |
+| Shopify Install | `pages/auth/shopify-install.tsx` | — | **Not Built** | Figma has Shopify OAuth install flow with permissions screen |
+| Shopify Callback | `pages/auth/shopify-callback.tsx` | — | **Not Built** | Figma has OAuth callback handling with loading state |
+| Shopify Success | `pages/auth/shopify-success.tsx` | — | **Not Built** | Figma has post-install success screen with next steps |
+| Billing | — | `src/app/app/billing/page.tsx` | **Codebase Only** | Full Stripe billing with plan comparison, usage bars, checkout — not in Figma prototype |
+| Campaigns List | — | `src/app/app/campaigns/page.tsx` | **Codebase Only** | Campaign list with status badges, variant counts — managed differently in Figma (via dashboard) |
+| Campaign Creation Wizard | — | `src/app/app/campaigns/new/page.tsx` | **Codebase Only** | Step-by-step wizard with site selection, type, template — Figma uses templates page instead |
+| Sites Management | — | `src/app/app/sites/page.tsx` | **Codebase Only** | Sites CRUD with key rotation — Figma handles sites within integrations/settings |
+| Invite Acceptance | — | `src/app/accept-invite/page.tsx` | **Codebase Only** | Token-based invite acceptance flow |
+
+---
+
+### Builder Components
+
+The Figma prototype defines a comprehensive builder with 9 sub-components. The codebase has a basic builder.
+
+| Figma Component | Figma Source | Codebase Equivalent | Status | Gap Notes |
+|----------------|-------------|---------------------|--------|-----------|
+| Field Palette | `components/builder/field-palette.tsx` | Inline in builder page | **Partial** | Figma has categorized field palette (Basic, Advanced, Commerce) with drag-to-add; codebase has flat list |
+| Form Canvas | `components/builder/form-canvas.tsx` | Inline in builder page | **Partial** | Figma has WYSIWYG canvas with field reordering, selection, inline editing; codebase has basic drag-and-drop list |
+| Field Properties | `components/builder/field-properties.tsx` | Inline in builder page | **Partial** | Figma has detailed property panel (validation rules, conditional logic, placeholder, help text); codebase has basic field editing |
+| Style Editor | `components/builder/style-editor.tsx` | — | **Not Built** | Figma has visual style editor: colors, fonts, border radius, spacing, background, button styles |
+| Display Settings | `components/builder/display-settings.tsx` | — | **Not Built** | Figma has targeting rules, trigger config, frequency capping, device targeting, URL matching — all visual |
+| Variant Manager | `components/builder/variant-manager.tsx` | — | **Not Built** | Figma has variant list, traffic allocation sliders, duplicate variant, A/B test status |
+| Form Preview | `components/builder/form-preview.tsx` | — | **Not Built** | Figma has live preview panel with device toggle (desktop/tablet/mobile), popup vs inline preview |
+| Multi-Step Editor | `components/builder/multi-step-editor.tsx` | — | **Not Built** | Figma has multi-step form flow editor with step ordering, progress bar config, per-step field assignment |
+| Export Modal | `components/builder/export-modal.tsx` | — | **Not Built** | Figma has export options: embed code, Shopify snippet, WordPress shortcode, direct link |
+
+---
+
+### Standalone Components
+
+| Figma Component | Figma Source | Codebase Equivalent | Status | Gap Notes |
+|----------------|-------------|---------------------|--------|-----------|
+| AI Form Generator | `components/ai-form-generator.tsx` | `src/app/api/ai/generate/route.ts` | **Partial** | Codebase has API endpoints for AI generation; Figma has chat-style UI with prompt suggestions, generation preview |
+| Statistical Significance | `components/statistical-significance.tsx` | — | **Not Built** | Figma has significance calculator showing confidence intervals, sample size, winner declaration |
+| Spam Protection Settings | `components/spam-protection-settings.tsx` | Honeypot in runtime submit | **Partial** | Codebase has basic honeypot field; Figma has configurable spam protection (honeypot, reCAPTCHA, rate limiting, blocklist) |
+| Logo | `components/logo.tsx` | — | **Not Built** | Figma has branded Capturely logo component |
+| Notifications Bell | — | `src/app/app/notifications-bell.tsx` | **Codebase Only** | In-app notification dropdown with unread badge — not in Figma prototype |
+| Billing Guard | — | `src/app/app/billing-guard.tsx` | **Codebase Only** | Auto-redirect locked accounts to billing — not in Figma prototype |
+
+---
+
+### Data Model & Types
+
+| Figma Types (`types.ts`) | Prisma Schema Equivalent | Status | Gap Notes |
+|--------------------------|-------------------------|--------|-----------|
+| FormField (9 types) | Via `packages/shared/forms/types.ts` | **Built** | Shared types cover all 9 field types |
+| FormStyle | Via `packages/shared/forms/types.ts` | **Built** | Colors, font, radius in shared types |
+| Campaign (type, status, targeting, trigger, frequency) | `Campaign` model in schema | **Built** | Prisma model has all core fields |
+| Variant (name, fields, style, traffic weight) | `Variant` model in schema | **Built** | Prisma model supports A/B variants |
+| TargetingRule, TriggerConfig, FrequencyConfig | Via `packages/shared/forms/types.ts` | **Built** | Shared types + widget implementation |
+| Template (category, tags, preview) | — | **Not Built** | No template model or storage |
+| Integration (platform, credentials, status) | — | **Not Built** | No integration model |
+| MultiStepConfig (steps, progress bar) | — | **Not Built** | No multi-step form support in schema |
+
+---
+
+### API & Backend
+
+| Feature Area | Codebase APIs | Figma Implies | Status |
+|-------------|--------------|---------------|--------|
+| Auth (Clerk) | sign-in, sign-up, middleware | Same | **Built** |
+| Team & Invites | `/api/team`, `/api/invites` | Same | **Built** |
+| Sites CRUD | `/api/sites` (6 endpoints) | Within integrations | **Built** |
+| Campaigns CRUD | `/api/campaigns` (7 endpoints) | Same | **Built** |
+| Runtime (token, submit) | `/api/runtime` (2 endpoints) | Same | **Built** |
+| Runtime (impression) | `/api/runtime/impression` | Same | **Built** |
+| Analytics | `/api/analytics/overview`, campaign analytics | Cross-campaign + funnel | **Partial** |
+| Billing (Stripe) | `/api/billing` (3 endpoints), `/api/stripe/webhook` | Not in Figma | **Codebase Only** |
+| AI Generation | `/api/ai` (4 endpoints) | Chat-based AI builder | **Partial** |
+| Auto-Optimization | `/api/cron/optimize`, `/api/campaigns/[id]/optimization` | Variant auto-optimization | **Built** |
+| Experiments | `/api/experiments`, `/api/growthbook/webhook` | A/B testing | **Built** |
+| Health | `/api/health/db` | Same | **Built** |
+| Shopify OAuth | — | Install, callback, success flow | **Not Built** |
+| WordPress Plugin API | — | Plugin registration, auto-embed | **Not Built** |
+| Webhook Management | Model exists, no management API | Webhook CRUD + test | **Not Built** |
+| Template Library | — | Browse, preview, use templates | **Not Built** |
+| Embed Code Generator | — | Platform-specific snippets | **Not Built** |
+
+---
+
+### Summary: Priority Gaps to Close
+
+These are the highest-impact features in the Figma prototype that are not yet built:
+
+1. **Full Builder UI** — The builder needs Style Editor, Display Settings, Variant Manager, Form Preview, and Multi-Step Editor to match Figma spec. This is the core product experience.
+2. **Templates Gallery** — A curated template library is critical for first-time user activation.
+3. **Integrations Page** — Shopify/WordPress connect flows are key differentiators per the PRD.
+4. **Shopify OAuth Flow** — Three-page OAuth flow (install → callback → success) needed for Shopify App Store.
+5. **Export/Embed Page** — Users need easy copy-paste embed codes for each platform.
+6. **AI Form Generator UI** — Backend exists but the chat-based generation UI from Figma is not built.
+7. **Settings Page** — Only team settings exist; need account settings, notification preferences, API keys.
+8. **Statistical Significance** — Visual confidence calculator for A/B test decisions.
+9. **Spam Protection Config** — Configurable spam protection beyond basic honeypot.
+10. **Dashboard Enhancement** — Current dashboard is a simple welcome; Figma has stats cards, activity feed, quick actions.
 
 ---
 
