@@ -3,12 +3,21 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { TEMPLATES, type CampaignTemplate } from "@/lib/templates";
+import { TemplatePreviewModal } from "./components/TemplatePreviewModal";
+import {
+  CATEGORY_CHIPS,
+  type CategoryChip,
+  getVisibleTemplates,
+  createCampaignFromTemplate,
+  getBuilderPath,
+} from "./template-utils";
 
 interface Site {
   id: string;
   name: string;
   primaryDomain: string;
 }
+
 
 export default function NewCampaignPage() {
   const router = useRouter();
@@ -17,6 +26,8 @@ export default function NewCampaignPage() {
   const [siteId, setSiteId] = useState("");
   const [type, setType] = useState<"popup" | "inline">("popup");
   const [templateId, setTemplateId] = useState<string | undefined>();
+  const [activeCategory, setActiveCategory] = useState<CategoryChip>("All");
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -48,10 +59,29 @@ export default function NewCampaignPage() {
     }
 
     const campaign = await res.json();
-    router.push(`/app/campaigns/${campaign.id}/builder`);
+    router.push(getBuilderPath(campaign.id));
   };
 
-  const categories = [...new Set(TEMPLATES.map((t: CampaignTemplate) => t.category))];
+  const handleUseTemplate = async (template: CampaignTemplate) => {
+    if (!siteId || loading) return;
+    setLoading(true);
+    setError("");
+
+    const result = await createCampaignFromTemplate(siteId, template.id);
+    if (!result.ok) {
+      setError(result.error);
+      setLoading(false);
+      return;
+    }
+
+    router.push(getBuilderPath(result.campaignId));
+  };
+
+  const selectedPreviewTemplate = previewTemplateId
+    ? TEMPLATES.find((template) => template.id === previewTemplateId)
+    : null;
+
+  const visibleTemplates = getVisibleTemplates(activeCategory);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -114,28 +144,64 @@ export default function NewCampaignPage() {
           <label className="mb-3 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Start from a template (optional)
           </label>
-          {categories.map((cat) => (
-            <div key={cat} className="mb-4">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{cat}</h4>
-              <div className="grid grid-cols-2 gap-3">
-                {TEMPLATES.filter((t: CampaignTemplate) => t.category === cat).map((template: CampaignTemplate) => (
+          <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Template categories">
+            {CATEGORY_CHIPS.map((category) => (
+              <button
+                key={category}
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === category}
+                onClick={() => setActiveCategory(category)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                  activeCategory === category
+                    ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                    : "border-zinc-300 text-zinc-600"
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {visibleTemplates.map((template: CampaignTemplate) => (
+              <div
+                key={template.id}
+                className={`rounded-lg border p-3 text-left text-sm ${
+                  templateId === template.id
+                    ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950"
+                    : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTemplateId(templateId === template.id ? undefined : template.id)}
+                  className="w-full text-left"
+                >
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{template.name}</div>
+                  <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{template.description}</div>
+                  <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-400">{template.id}</div>
+                </button>
+                <div className="mt-3 flex gap-2">
                   <button
-                    key={template.id}
                     type="button"
-                    onClick={() => setTemplateId(templateId === template.id ? undefined : template.id)}
-                    className={`rounded-lg border p-3 text-left text-sm ${
-                      templateId === template.id
-                        ? "border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950"
-                        : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
-                    }`}
+                    onClick={() => setPreviewTemplateId(template.id)}
+                    className="rounded border border-zinc-300 px-2 py-1 text-xs"
                   >
-                    <div className="font-medium text-zinc-900 dark:text-zinc-100">{template.name}</div>
-                    <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{template.description}</div>
+                    Preview
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => handleUseTemplate(template)}
+                    disabled={!siteId || loading}
+                    className="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    Use Template
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <button
@@ -146,6 +212,13 @@ export default function NewCampaignPage() {
           {loading ? "Creating..." : "Create Campaign"}
         </button>
       </form>
+
+      {selectedPreviewTemplate && (
+        <TemplatePreviewModal
+          template={selectedPreviewTemplate}
+          onClose={() => setPreviewTemplateId(null)}
+        />
+      )}
     </div>
   );
 }
