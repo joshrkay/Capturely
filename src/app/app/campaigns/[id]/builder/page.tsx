@@ -10,6 +10,7 @@ import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
+import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
@@ -417,8 +418,20 @@ export default function BuilderPage() {
   const [message, setMessage] = useState("");
   const [viewport, setViewport] = useState<ViewportKey>("desktop");
   const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const loadVariantSchema = useCallback((variantId: string, campaignData: Campaign | null) => {
+    if (!campaignData) return;
+    const variant = campaignData.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    try {
+      setSchema(JSON.parse(variant.schemaJson));
+    } catch {
+      // ignore malformed schema
+    }
+  }, []);
 
   // Load campaign
   useEffect(() => {
@@ -429,19 +442,10 @@ export default function BuilderPage() {
         const control = data.variants.find((v) => v.isControl) ?? data.variants[0];
         if (control) {
           setActiveVariantId(control.id);
-          try { setSchema(JSON.parse(control.schemaJson)); } catch { /* ignore */ }
+          loadVariantSchema(control.id, data);
         }
       });
-  }, [id]);
-
-  // When active variant changes
-  useEffect(() => {
-    if (!campaign) return;
-    const variant = campaign.variants.find((v) => v.id === activeVariantId);
-    if (variant) {
-      try { setSchema(JSON.parse(variant.schemaJson)); } catch { /* ignore */ }
-    }
-  }, [activeVariantId, campaign]);
+  }, [id, loadVariantSchema]);
 
   const updateSchema = useCallback((updated: FormSchema) => {
     setSchema(updated);
@@ -543,7 +547,7 @@ export default function BuilderPage() {
     setTimeout(() => setMessage(""), 2000);
   };
 
-  const handlePublish = async () => {
+  const handlePublish = async (): Promise<boolean> => {
     await handleSave();
     setPublishing(true);
     setMessage("");
@@ -552,12 +556,16 @@ export default function BuilderPage() {
     if (!res.ok) {
       const data = await res.json();
       setMessage(`Error: ${data.error}`);
+      setPublishing(false);
+      setTimeout(() => setMessage(""), 3000);
+      return false;
     } else {
       setMessage("Published!");
       setCampaign((prev) => prev ? { ...prev, status: "published", hasUnpublishedChanges: false } : prev);
     }
     setPublishing(false);
     setTimeout(() => setMessage(""), 3000);
+    return true;
   };
 
   const handleCampaignUpdate = (updates: Record<string, unknown>) => {
@@ -596,9 +604,17 @@ export default function BuilderPage() {
             campaignId={campaign.id}
             variants={campaign.variants}
             activeVariantId={activeVariantId}
-            onActiveVariantChange={setActiveVariantId}
+            onActiveVariantChange={(variantId) => {
+              setActiveVariantId(variantId);
+              loadVariantSchema(variantId, campaign);
+            }}
             onVariantsChange={(updated) =>
-              setCampaign((prev) => prev ? { ...prev, variants: updated } : prev)
+              setCampaign((prev) => {
+                if (!prev) return prev;
+                const updatedCampaign = { ...prev, variants: updated };
+                loadVariantSchema(activeVariantId, updatedCampaign);
+                return updatedCampaign;
+              })
             }
             plan={resolvePlan(campaign.accountPlanKey)}
             canEdit={true}
@@ -612,14 +628,21 @@ export default function BuilderPage() {
             {saving ? "Saving..." : "Save Draft"}
           </button>
           <button
-            onClick={handlePublish}
-            disabled={publishing}
+            onClick={() => setIsExportModalOpen(true)}
             className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {publishing ? "Publishing..." : "Publish"}
+            Publish / Get Code
           </button>
         </div>
       </div>
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onPublish={handlePublish}
+        publishing={publishing}
+        campaign={campaign}
+      />
 
       {/* Three-panel layout */}
       <div className="flex flex-1 overflow-hidden">
