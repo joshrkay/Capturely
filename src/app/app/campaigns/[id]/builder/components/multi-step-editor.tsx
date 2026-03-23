@@ -30,6 +30,19 @@ interface FormField {
   label: string;
 }
 
+interface FormStyle {
+  backgroundColor: string;
+  textColor: string;
+  buttonColor: string;
+  buttonTextColor: string;
+  borderRadius: string;
+  fontFamily: string;
+  padding?: string;
+  buttonBorderRadius?: string;
+  buttonHoverColor?: string;
+  boxShadow?: string;
+}
+
 interface FormStep {
   label: string;
   fieldIds: string[];
@@ -37,9 +50,10 @@ interface FormStep {
 
 interface FormSchema {
   fields: FormField[];
+  style: FormStyle;
+  submitLabel: string;
   steps?: FormStep[];
   progressBarStyle?: "dots" | "bar" | "steps" | "none";
-  [key: string]: unknown;
 }
 
 // ─── Field Chip (Draggable) ───────────────────────────────────────────────────
