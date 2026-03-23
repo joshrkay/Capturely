@@ -11,10 +11,15 @@ const createVariantSchema = z.object({
 });
 
 const updateVariantSchema = z.object({
+  variantId: z.string().cuid(),
   name: z.string().min(1).max(100).optional(),
   schemaJson: z.string().min(2).optional(),
-  trafficPercentage: z.number().min(0).max(100).optional(),
+  trafficPercentage: z.number().int().min(0).max(100).optional(),
   isControl: z.boolean().optional(),
+});
+
+const deleteVariantSchema = z.object({
+  variantId: z.string().cuid(),
 });
 
 /** POST /api/campaigns/:id/variants — Add a variant (A/B testing) */
@@ -59,7 +64,7 @@ export async function POST(
     const variantCount = campaign.variants.length + 1;
     const newPercentage = Math.floor(100 / variantCount);
 
-    const variant = await prisma.$transaction(async (tx) => {
+    const { variant, allVariants } = await prisma.$transaction(async (tx) => {
       // Rebalance existing variants
       for (const v of campaign.variants) {
         await tx.variant.update({
@@ -70,7 +75,7 @@ export async function POST(
 
       // Create new variant with remaining traffic
       const remaining = 100 - newPercentage * campaign.variants.length;
-      return tx.variant.create({
+      const created = await tx.variant.create({
         data: {
           campaignId: id,
           name: parsed.data.name,
@@ -79,6 +84,13 @@ export async function POST(
           schemaJson: parsed.data.schemaJson,
         },
       });
+
+      const all = await tx.variant.findMany({
+        where: { campaignId: id },
+        select: { id: true, name: true, trafficPercentage: true, isControl: true },
+      });
+
+      return { variant: created, allVariants: all };
     });
 
     await prisma.campaign.update({
@@ -86,7 +98,7 @@ export async function POST(
       data: { hasUnpublishedChanges: true },
     });
 
-    return NextResponse.json(variant, { status: 201 });
+    return NextResponse.json({ variant, allVariants }, { status: 201 });
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
@@ -115,12 +127,7 @@ export async function PATCH(
     }
 
     const body = await req.json();
-    const { variantId, ...rest } = body;
-    if (!variantId) {
-      return NextResponse.json({ error: "variantId required", code: "VALIDATION_ERROR" }, { status: 400 });
-    }
-
-    const parsed = updateVariantSchema.safeParse(rest);
+    const parsed = updateVariantSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
@@ -128,13 +135,15 @@ export async function PATCH(
       );
     }
 
+    const { variantId, ...rest } = parsed.data;
+
     const variant = await prisma.variant.update({
       where: { id: variantId },
       data: {
-        ...(parsed.data.name !== undefined && { name: parsed.data.name }),
-        ...(parsed.data.schemaJson !== undefined && { schemaJson: parsed.data.schemaJson }),
-        ...(parsed.data.trafficPercentage !== undefined && { trafficPercentage: parsed.data.trafficPercentage }),
-        ...(parsed.data.isControl !== undefined && { isControl: parsed.data.isControl }),
+        ...(rest.name !== undefined && { name: rest.name }),
+        ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
+        ...(rest.trafficPercentage !== undefined && { trafficPercentage: rest.trafficPercentage }),
+        ...(rest.isControl !== undefined && { isControl: rest.isControl }),
         schemaVersion: { increment: 1 },
       },
     });
@@ -144,7 +153,85 @@ export async function PATCH(
       data: { hasUnpublishedChanges: true },
     });
 
-    return NextResponse.json(variant);
+    return NextResponse.json({ variant });
+  } catch (err) {
+    if (err instanceof AccountContextError) {
+      return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
+    }
+    throw err;
+  }
+}
+
+/** DELETE /api/campaigns/:id/variants — Delete a non-control variant */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const ctx = await withAccountContext();
+    if (!canManageCampaigns(ctx.role)) {
+      return NextResponse.json({ error: "Forbidden", code: "FORBIDDEN" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, accountId: ctx.accountId },
+      include: { variants: true },
+    });
+    if (!campaign) {
+      return NextResponse.json({ error: "Campaign not found", code: "NOT_FOUND" }, { status: 404 });
+    }
+
+    const body = await req.json();
+    const parsed = deleteVariantSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const { variantId } = parsed.data;
+
+    const variantToDelete = campaign.variants.find((v) => v.id === variantId);
+    if (!variantToDelete) {
+      return NextResponse.json({ error: "Variant not found", code: "NOT_FOUND" }, { status: 404 });
+    }
+    if (variantToDelete.isControl) {
+      return NextResponse.json(
+        { error: "Cannot delete control variant", code: "CONTROL_DELETE_FORBIDDEN" },
+        { status: 400 }
+      );
+    }
+
+    const remainingVariants = campaign.variants.filter((v) => v.id !== variantId);
+    const n = remainingVariants.length;
+    const base = Math.floor(100 / n);
+    const control = remainingVariants.find((v) => v.isControl) ?? remainingVariants[0];
+
+    const allVariants = await prisma.$transaction(async (tx) => {
+      await tx.variant.delete({ where: { id: variantId } });
+
+      for (const v of remainingVariants) {
+        const traffic = v.id === control.id ? base + (100 - base * n) : base;
+        await tx.variant.update({
+          where: { id: v.id },
+          data: { trafficPercentage: traffic },
+        });
+      }
+
+      return tx.variant.findMany({
+        where: { campaignId: id },
+        select: { id: true, name: true, trafficPercentage: true, isControl: true },
+      });
+    });
+
+    await prisma.campaign.update({
+      where: { id },
+      data: { hasUnpublishedChanges: true },
+    });
+
+    return NextResponse.json({ deleted: true, allVariants });
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
@@ -46,10 +47,13 @@ interface FormSchema {
 
 interface Variant {
   id: string;
+  campaignId: string;
   name: string;
   isControl: boolean;
   trafficPercentage: number;
   schemaJson: string;
+  schemaVersion: number;
+  generatedBy: string;
 }
 
 interface Campaign {
@@ -64,6 +68,7 @@ interface Campaign {
   frequencyJson: string | null;
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
+  accountPlanKey: string;
 }
 
 const FIELD_TYPES = [
@@ -571,18 +576,18 @@ export default function BuilderPage() {
         <div className="flex items-center gap-2">
           {message && <span className="text-xs text-zinc-500">{message}</span>}
 
-          {/* Variant selector */}
-          {campaign.variants.length > 1 && (
-            <select
-              value={activeVariantId}
-              onChange={(e) => setActiveVariantId(e.target.value)}
-              className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            >
-              {campaign.variants.map((v) => (
-                <option key={v.id} value={v.id}>{v.name} ({v.trafficPercentage}%)</option>
-              ))}
-            </select>
-          )}
+          {/* Variant manager */}
+          <VariantManagerPanel
+            campaignId={campaign.id}
+            variants={campaign.variants}
+            activeVariantId={activeVariantId}
+            onActiveVariantChange={setActiveVariantId}
+            onVariantsChange={(updated) =>
+              setCampaign((prev) => prev ? { ...prev, variants: updated } : prev)
+            }
+            plan={resolvePlan(campaign.accountPlanKey)}
+            canEdit={true}
+          />
 
           <button
             onClick={handleSave}
