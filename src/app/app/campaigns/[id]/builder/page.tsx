@@ -32,6 +32,10 @@ interface FormStyle {
   buttonTextColor: string;
   borderRadius: string;
   fontFamily: string;
+  padding?: string;
+  buttonBorderRadius?: string;
+  buttonHoverColor?: string;
+  boxShadow?: string;
 }
 
 interface FormSchema {
@@ -288,87 +292,6 @@ function FieldSettingsPanel({
           Delete field
         </button>
       )}
-    </div>
-  );
-}
-
-// ─── Style Panel ──────────────────────────────────────────────────────────────
-
-function StylePanel({
-  style,
-  submitLabel,
-  onChange,
-  onSubmitLabelChange,
-}: {
-  style: FormStyle;
-  submitLabel: string;
-  onChange: (style: FormStyle) => void;
-  onSubmitLabelChange: (label: string) => void;
-}) {
-  const colorFields: Array<{ key: keyof FormStyle; label: string }> = [
-    { key: "backgroundColor", label: "Background" },
-    { key: "textColor", label: "Text" },
-    { key: "buttonColor", label: "Button" },
-    { key: "buttonTextColor", label: "Button Text" },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Style</h3>
-
-      {colorFields.map(({ key, label }) => (
-        <div key={key} className="flex items-center gap-2">
-          <input
-            type="color"
-            value={style[key]}
-            onChange={(e) => onChange({ ...style, [key]: e.target.value })}
-            className="h-8 w-8 rounded border border-zinc-300 p-0"
-          />
-          <div className="flex-1">
-            <label className="text-xs text-zinc-600 dark:text-zinc-400">{label}</label>
-            <input
-              type="text"
-              value={style[key]}
-              onChange={(e) => onChange({ ...style, [key]: e.target.value })}
-              className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            />
-          </div>
-        </div>
-      ))}
-
-      <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Border Radius</label>
-        <input
-          type="text"
-          value={style.borderRadius}
-          onChange={(e) => onChange({ ...style, borderRadius: e.target.value })}
-          className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Font Family</label>
-        <select
-          value={style.fontFamily}
-          onChange={(e) => onChange({ ...style, fontFamily: e.target.value })}
-          className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        >
-          <option value="Inter, sans-serif">Inter</option>
-          <option value="system-ui, sans-serif">System UI</option>
-          <option value="Georgia, serif">Georgia</option>
-          <option value="ui-monospace, monospace">Monospace</option>
-        </select>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Submit Button Text</label>
-        <input
-          type="text"
-          value={submitLabel}
-          onChange={(e) => onSubmitLabelChange(e.target.value)}
-          className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
-      </div>
     </div>
   );
 }
@@ -852,7 +775,7 @@ export default function BuilderPage() {
             <p className="text-xs text-zinc-400">Select a field to edit its settings</p>
           )}
           {rightTab === "style" && (
-            <StylePanel
+            <StyleEditor
               style={schema.style}
               submitLabel={schema.submitLabel}
               onChange={(style) => updateSchema({ ...schema, style })}
