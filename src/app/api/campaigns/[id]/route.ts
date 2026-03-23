@@ -31,6 +31,7 @@ export async function GET(
       include: {
         variants: true,
         site: { select: { id: true, name: true, publicKey: true } },
+        account: { select: { planKey: true } },
         _count: { select: { submissions: true } },
       },
     });
@@ -39,7 +40,8 @@ export async function GET(
       return NextResponse.json({ error: "Campaign not found", code: "NOT_FOUND" }, { status: 404 });
     }
 
-    return NextResponse.json(campaign);
+    const { account, ...rest } = campaign;
+    return NextResponse.json({ ...rest, accountPlanKey: account.planKey });
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
