@@ -21,12 +21,13 @@ import {
 import { useDroppable } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface FormField {
   fieldId: string;
-  type: string;
+  type: FieldType;
   label: string;
 }
 

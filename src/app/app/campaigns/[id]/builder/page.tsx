@@ -263,7 +263,7 @@ function FieldSettingsPanel({
                   value={field.visibilityCondition.operator}
                   onChange={(e) => onChange({
                     ...field,
-                    visibilityCondition: { ...field.visibilityCondition!, operator: e.target.value },
+                    visibilityCondition: { ...field.visibilityCondition!, operator: e.target.value as "equals" | "not_equals" | "contains" | "not_empty" },
                   })}
                   className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 >
