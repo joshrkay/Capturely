@@ -337,6 +337,33 @@ function AiCopilotPanel({
     return () => controller.abort();
   }, [standalone]);
 
+  useEffect(() => {
+    if (!standalone) return;
+    const controller = new AbortController();
+    setLoadingSites(true);
+    setError("");
+
+    fetch("/api/sites", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error("Failed to load sites");
+        }
+        const data = await res.json();
+        const nextSites = Array.isArray(data.sites) ? data.sites : [];
+        setSites(nextSites);
+        if (nextSites.length === 1) {
+          setSiteId(nextSites[0].id);
+        }
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        setError("Unable to load sites. Please refresh and try again.");
+      })
+      .finally(() => setLoadingSites(false));
+
+    return () => controller.abort();
+  }, [standalone]);
+
   const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
     const trimmedPrompt = inputPrompt.trim();
     if (!trimmedPrompt) return;
