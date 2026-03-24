@@ -46,6 +46,93 @@ export function verifyHmac(
   return digest === hmac;
 }
 
+interface ShopifyScriptTag {
+  id: number;
+  src: string;
+  event: string;
+  created_at: string;
+}
+
+/**
+ * Inject a script tag into a Shopify store via the Admin REST API.
+ * Called after successful OAuth to install widget.js automatically.
+ */
+export async function injectScriptTag(
+  shopDomain: string,
+  accessToken: string,
+  scriptSrc: string
+): Promise<ShopifyScriptTag> {
+  const response = await fetch(
+    `https://${shopDomain}/admin/api/2024-01/script_tags.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": accessToken,
+      },
+      body: JSON.stringify({
+        script_tag: {
+          event: "onload",
+          src: scriptSrc,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify script tag injection failed: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as { script_tag: ShopifyScriptTag };
+  return data.script_tag;
+}
+
+/**
+ * List all script tags installed on a Shopify store.
+ */
+export async function listScriptTags(
+  shopDomain: string,
+  accessToken: string
+): Promise<ShopifyScriptTag[]> {
+  const response = await fetch(
+    `https://${shopDomain}/admin/api/2024-01/script_tags.json`,
+    {
+      headers: { "X-Shopify-Access-Token": accessToken },
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify list script tags failed: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as { script_tags: ShopifyScriptTag[] };
+  return data.script_tags;
+}
+
+/**
+ * Delete a script tag from a Shopify store.
+ */
+export async function deleteScriptTag(
+  shopDomain: string,
+  accessToken: string,
+  scriptTagId: number
+): Promise<void> {
+  const response = await fetch(
+    `https://${shopDomain}/admin/api/2024-01/script_tags/${scriptTagId}.json`,
+    {
+      method: "DELETE",
+      headers: { "X-Shopify-Access-Token": accessToken },
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify delete script tag failed: ${response.status} ${text}`);
+  }
+}
+
 /**
  * Exchange the temporary authorization code for a permanent access token.
  */
