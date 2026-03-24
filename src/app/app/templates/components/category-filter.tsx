@@ -2,30 +2,21 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import type { getTemplateCategories } from "@/lib/templates";
-
-type TemplateCategories = ReturnType<typeof getTemplateCategories>;
-
 interface CategoryFilterProps {
-  currentCategory?: string;
-  categories: TemplateCategories;
+  categories: string[];
+  selectedCategory?: string;
 }
 
-const baseButtonClass =
-  "rounded border px-3 py-1.5 text-sm transition-colors";
-
-const selectedButtonClass =
-  "border-indigo-600 bg-indigo-600 text-white dark:border-indigo-400 dark:bg-indigo-500 dark:text-zinc-950";
-
-const unselectedButtonClass =
-  "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
-
-export function CategoryFilter({ currentCategory, categories }: CategoryFilterProps) {
+export function CategoryFilter({ categories, selectedCategory }: CategoryFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const inactiveClasses =
+    "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300";
+  const activeClasses =
+    "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900";
 
-  const updateCategory = (category?: string) => {
+  const setCategory = (category?: string) => {
     const params = new URLSearchParams(searchParams.toString());
 
     if (!category) {
@@ -34,35 +25,29 @@ export function CategoryFilter({ currentCategory, categories }: CategoryFilterPr
       params.set("category", category);
     }
 
-    const query = params.toString();
-    const url = query ? `${pathname}?${query}` : pathname;
-    router.push(url, { scroll: false });
+    const next = params.toString();
+    router.push(next ? `${pathname}?${next}` : pathname);
   };
 
-  const resolveButtonClass = (isSelected: boolean) =>
-    `${baseButtonClass} ${isSelected ? selectedButtonClass : unselectedButtonClass}`;
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap gap-2">
       <button
         type="button"
-        onClick={() => updateCategory()}
-        className={resolveButtonClass(!currentCategory)}
-        aria-pressed={!currentCategory}
+        onClick={() => setCategory(undefined)}
+        className={`rounded border px-3 py-1.5 text-sm ${!selectedCategory ? activeClasses : inactiveClasses}`}
       >
         All
       </button>
 
       {categories.map((category) => {
-        const isSelected = currentCategory === category;
+        const isActive = selectedCategory === category;
 
         return (
           <button
             key={category}
             type="button"
-            onClick={() => updateCategory(category)}
-            className={resolveButtonClass(isSelected)}
-            aria-pressed={isSelected}
+            onClick={() => setCategory(category)}
+            className={`rounded border px-3 py-1.5 text-sm ${isActive ? activeClasses : inactiveClasses}`}
           >
             {category}
           </button>
