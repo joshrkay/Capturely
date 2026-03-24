@@ -28,6 +28,11 @@ model Account {
   billingCycleStart     DateTime? @map("billing_cycle_start")
   billingCycleEnd       DateTime? @map("billing_cycle_end")
 
+  // Settings fields (Gate G)
+  timezone                String?  @default("UTC") @map("timezone")
+  language                String?  @default("en") @map("language")
+  notificationPreferences String?  @map("notification_preferences") // JSON string
+
   members       AccountMember[]
   invites       Invite[]
   sites         Site[]
