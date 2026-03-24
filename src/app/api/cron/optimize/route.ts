@@ -7,6 +7,9 @@ import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
 const MAX_CHALLENGERS = 3;
 const MAX_RUNS_PER_MONTH = 30;
 
+// Circuit breaker: pause if the last completed run's winner converted worse than this fraction of the control
+const MIN_WINNER_LIFT_FRACTION = -0.05; // allow up to -5% before pausing
+
 /**
  * POST /api/cron/optimize — Auto-optimization cron job.
  * Called by Vercel Cron or external scheduler every 15 minutes.
@@ -61,6 +64,44 @@ export async function POST(req: NextRequest) {
       if (campaign.optimizationRuns.length >= MAX_RUNS_PER_MONTH) {
         results.push({ campaignId: campaign.id, status: "skipped", error: "Monthly optimization limit reached" });
         continue;
+      }
+
+      // Circuit breaker: check if the last completed run's winner regressed significantly
+      const lastCompletedRun = await prisma.optimizationRun.findFirst({
+        where: { campaignId: campaign.id, status: "completed" },
+        include: { variants: true },
+        orderBy: { completedAt: "desc" },
+      });
+      if (lastCompletedRun) {
+        const runWinner = lastCompletedRun.variants.find((v) => v.isWinner);
+        const runControl = lastCompletedRun.variants.find(
+          (v) => v.variantId === lastCompletedRun.currentControlVariantId
+        );
+        if (
+          runWinner?.conversionRate != null &&
+          runControl?.conversionRate != null &&
+          runControl.conversionRate > 0
+        ) {
+          const lift = (runWinner.conversionRate - runControl.conversionRate) / runControl.conversionRate;
+          if (lift < MIN_WINNER_LIFT_FRACTION) {
+            // Pause auto-optimization and notify
+            await prisma.campaign.update({
+              where: { id: campaign.id },
+              data: { autoOptimize: false, optimizationStatus: "idle" },
+            });
+            await prisma.notification.create({
+              data: {
+                accountId: campaign.accountId,
+                type: "optimization_circuit_breaker",
+                title: `Optimization paused: ${campaign.name}`,
+                body: `The last winner converted ${(lift * 100).toFixed(1)}% below the control. Auto-optimization paused to protect conversion rates.`,
+                linkUrl: `/app/campaigns/${campaign.id}/optimization`,
+              },
+            });
+            results.push({ campaignId: campaign.id, status: "skipped", error: "Circuit breaker: conversion regression detected" });
+            continue;
+          }
+        }
       }
 
       const control = campaign.variants[0];
