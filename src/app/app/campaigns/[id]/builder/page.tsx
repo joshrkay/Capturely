@@ -8,49 +8,16 @@ import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
+import { AiChatPanel } from "../../components/ai-chat-panel";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface FormField {
-  fieldId: string;
-  type: FieldType;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  options?: Array<{ value: string; label: string }>;
-  visibilityCondition?: {
-    dependsOn: string;
-    operator: "equals" | "not_equals" | "contains" | "not_empty";
-    value?: string;
-  };
-}
-
-interface FormStyle {
-  backgroundColor: string;
-  textColor: string;
-  buttonColor: string;
-  buttonTextColor: string;
-  borderRadius: string;
-  fontFamily: string;
-  padding?: string;
-  buttonBorderRadius?: string;
-  buttonHoverColor?: string;
-  boxShadow?: string;
-}
-
-interface FormSchema {
-  fields: FormField[];
-  style: FormStyle;
-  submitLabel: string;
-  steps?: Array<{ label: string; fieldIds: string[] }>;
-  progressBarStyle?: "dots" | "bar" | "steps" | "none";
-}
 
 interface Variant {
   id: string;
@@ -942,7 +909,7 @@ export default function BuilderPage() {
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
           {rightTab === "ai" && (
-            <AiCopilotPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />
           )}
         </div>
       </div>
