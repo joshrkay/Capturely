@@ -306,17 +306,77 @@ function FieldSettingsPanel({
 
 // ─── AI Copilot Panel ─────────────────────────────────────────────────────────
 
+interface AiChatPanelProps {
+  campaignType: "popup" | "inline";
+  currentSchema: FormSchema | null;
+  onApplySchema: (schema: FormSchema) => void;
+}
+
 function AiCopilotPanel({
   campaignType,
+  currentSchema,
   onApplySchema,
-}: {
-  campaignType: string;
-  onApplySchema: (schema: FormSchema) => void;
-}) {
+}: AiChatPanelProps) {
+  type Endpoint = "/api/ai/generate" | "/api/ai/generate-copy" | "/api/ai/suggest-fields" | "/api/ai/suggest-style";
+  type ChatMessage = {
+    prompt: string;
+    response: string;
+    schemaApplied: boolean;
+  };
+
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [history, setHistory] = useState<Array<{ prompt: string; response: string }>>([]);
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [latestSchema, setLatestSchema] = useState<FormSchema | null>(currentSchema);
+
+  useEffect(() => {
+    if (currentSchema) {
+      setLatestSchema(currentSchema);
+    }
+  }, [currentSchema]);
+
+  const extractJsonBlock = (value: string) => {
+    const jsonMatch = value.match(/```(?:json)?\s*([\s\S]*?)```/);
+    return (jsonMatch ? jsonMatch[1] : value).trim();
+  };
+
+  const parseSchemaFromOutput = (value: string): FormSchema | null => {
+    try {
+      const parsed = JSON.parse(extractJsonBlock(value)) as FormSchema;
+      if (!Array.isArray(parsed.fields) || !parsed.style || typeof parsed.submitLabel !== "string") {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const classifyIntent = (input: string): Endpoint => {
+    const normalized = input.toLowerCase();
+    if (/(headline|copy|cta|button text|microcopy|wording|rewrite)/.test(normalized)) return "/api/ai/generate-copy";
+    if (/(field|question|collect|ask for|form element|input)/.test(normalized)) return "/api/ai/suggest-fields";
+    if (/(style|theme|design|color|font|brand|look and feel)/.test(normalized)) return "/api/ai/suggest-style";
+    return "/api/ai/generate";
+  };
+
+  const inferFieldType = (input: string): FieldType => {
+    const normalized = input.toLowerCase();
+    if (/(email|e-mail)/.test(normalized)) return "email";
+    if (/(phone|mobile|telephone)/.test(normalized)) return "phone";
+    if (/(dropdown|select|picker)/.test(normalized)) return "dropdown";
+    if (/(radio)/.test(normalized)) return "radio";
+    if (/(checkbox|consent|agree)/.test(normalized)) return "checkbox";
+    if (/(hidden|utm|tracking)/.test(normalized)) return "hidden";
+    if (/(message|description|long text|comments|notes)/.test(normalized)) return "textarea";
+    return "text";
+  };
+
+  const inferIndustry = (input: string): string | undefined => {
+    const match = input.match(/\b(saas|ecommerce|healthcare|finance|education|real estate|hospitality|agency|nonprofit)\b/i);
+    return match?.[0];
+  };
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -324,10 +384,52 @@ function AiCopilotPanel({
     setError("");
 
     try {
-      const res = await fetch("/api/ai/generate", {
+      const endpoint = classifyIntent(prompt);
+      const currentSchemaJson = latestSchema ? JSON.stringify(latestSchema) : undefined;
+      const extractedSiteUrl = prompt.match(/https?:\/\/[^\s]+/i)?.[0];
+      const extractedBrandColors = Array.from(new Set(prompt.match(/#[0-9a-f]{3,8}\b/gi) ?? []));
+      const inferredIndustry = inferIndustry(prompt);
+      const schemaContextSuffix = currentSchemaJson ? `\n\nCurrent schema context:\n${currentSchemaJson}` : "";
+
+      const requestBody =
+        endpoint === "/api/ai/generate-copy"
+          ? {
+              fieldType: inferFieldType(prompt),
+              fieldContext: `${prompt}${schemaContextSuffix}`,
+              campaignType,
+            }
+          : endpoint === "/api/ai/suggest-fields"
+            ? {
+                currentFields: currentSchemaJson
+                  ? `${currentSchemaJson}\n\nRequested field intent:\n${prompt}`
+                  : `No existing fields yet.\nRequested field intent:\n${prompt}`,
+                campaignType,
+                industry: inferredIndustry,
+              }
+            : endpoint === "/api/ai/suggest-style"
+              ? {
+                  campaignType,
+                  siteUrl: extractedSiteUrl,
+                  brandColors:
+                    extractedBrandColors.length > 0
+                      ? extractedBrandColors
+                      : latestSchema
+                        ? [latestSchema.style.backgroundColor, latestSchema.style.textColor, latestSchema.style.buttonColor].filter(
+                            (color): color is string => Boolean(color)
+                          )
+                        : undefined,
+                }
+              : {
+                  prompt: `${prompt}${schemaContextSuffix}`,
+                  campaignType,
+                  siteUrl: extractedSiteUrl,
+                  industry: inferredIndustry,
+                };
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, campaignType }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!res.ok) {
@@ -337,21 +439,15 @@ function AiCopilotPanel({
       }
 
       const data = await res.json();
-      setHistory((prev) => [...prev, { prompt, response: data.schema }]);
+      const responseText = data.schema ?? data.copy ?? data.suggestions ?? data.style ?? "";
+      const parsedSchema = parseSchemaFromOutput(responseText);
+      const schemaApplied = Boolean(parsedSchema);
 
-      // Try to parse and apply the schema
-      try {
-        // Extract JSON from the response (may be wrapped in markdown code blocks)
-        let jsonStr = data.schema;
-        const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          jsonStr = jsonMatch[1];
-        }
-        const schema = JSON.parse(jsonStr) as FormSchema;
-        onApplySchema(schema);
-      } catch {
-        setError("AI returned an invalid schema. Try rephrasing your prompt.");
+      if (parsedSchema) {
+        setLatestSchema(parsedSchema);
+        onApplySchema(parsedSchema);
       }
+      setHistory((prev) => [...prev, { prompt, response: responseText, schemaApplied }]);
 
       setPrompt("");
     } catch {
@@ -372,9 +468,16 @@ function AiCopilotPanel({
 
       <div className="max-h-48 space-y-2 overflow-y-auto">
         {history.map((h, i) => (
-          <div key={i} className="rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-800">
-            <div className="font-medium text-zinc-700 dark:text-zinc-300">{h.prompt}</div>
-            <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema applied</div>
+          <div key={i} className="space-y-1">
+            <div className="ml-8 rounded bg-zinc-100 p-2 text-xs dark:bg-zinc-800/80">
+              <div className="font-medium text-zinc-700 dark:text-zinc-300">{h.prompt}</div>
+            </div>
+            <div className="mr-8 rounded border border-indigo-100 bg-indigo-50 p-2 text-xs dark:border-indigo-900 dark:bg-indigo-950/30">
+              <div className="text-zinc-600 dark:text-zinc-300">{h.response}</div>
+              {h.schemaApplied && (
+                <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema applied</div>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -577,6 +680,7 @@ export default function BuilderPage() {
   }
 
   const selectedField = schema.fields.find((f) => f.fieldId === selectedFieldId);
+  const aiCampaignType: "popup" | "inline" = campaign.type === "inline" ? "inline" : "popup";
 
   return (
     <div className="flex h-[calc(100vh-73px)] flex-col">
@@ -762,7 +866,11 @@ export default function BuilderPage() {
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
           {rightTab === "ai" && (
-            <AiCopilotPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiCopilotPanel
+              campaignType={aiCampaignType}
+              currentSchema={schema}
+              onApplySchema={updateSchema}
+            />
           )}
         </div>
       </div>
