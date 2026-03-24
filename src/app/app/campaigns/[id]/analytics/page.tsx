@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { SignificanceTable } from "@/components/significance-table";
 
 interface VariantMetric {
   variantId: string;
@@ -119,6 +120,11 @@ export default function CampaignAnalyticsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Statistical significance */}
+      {data.variants.length > 1 && (
+        <SignificanceTable variants={data.variants} />
+      )}
 
       <div className="mt-4 flex gap-2">
         <Link
