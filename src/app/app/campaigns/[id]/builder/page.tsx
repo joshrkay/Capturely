@@ -345,6 +345,11 @@ function AiCopilotPanel({
     return match?.[0];
   };
 
+  const inferIndustry = (input: string): string | undefined => {
+    const match = input.match(/\b(saas|ecommerce|healthcare|finance|education|real estate|hospitality|agency|nonprofit)\b/i);
+    return match?.[0];
+  };
+
   const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
     const trimmedPrompt = inputPrompt.trim();
     if (!trimmedPrompt) return;
