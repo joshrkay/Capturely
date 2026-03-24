@@ -8,7 +8,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
-import { AiChatPanel } from "../../components/ai-chat-panel";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
@@ -102,14 +101,66 @@ function SortableField({
 function FieldSettingsPanel({
   field,
   allFields,
+  campaignType,
   onChange,
   onDelete,
 }: {
   field: FormField;
   allFields: FormField[];
+  campaignType: string;
   onChange: (updated: FormField) => void;
   onDelete: () => void;
 }) {
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [copyAlternatives, setCopyAlternatives] = useState<Array<{ label: string; placeholder?: string }>>([]);
+
+  const handleGenerateCopy = async () => {
+    setCopyLoading(true);
+    setCopyError("");
+    setCopyAlternatives([]);
+    try {
+      const res = await fetch("/api/ai/generate-copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fieldType: field.type,
+          fieldContext: `Label: ${field.label}, Placeholder: ${field.placeholder ?? "none"}`,
+          campaignType,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setCopyError(data.error ?? "Failed to generate copy");
+        return;
+      }
+      const data = await res.json();
+      let parsed: { label?: string; placeholder?: string; helperText?: string; alternatives?: Array<{ label: string; placeholder?: string }> };
+      try {
+        let jsonStr = data.copy;
+        const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) jsonStr = jsonMatch[1];
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        setCopyError("AI returned invalid copy data");
+        return;
+      }
+      if (parsed.label || parsed.placeholder) {
+        onChange({
+          ...field,
+          label: parsed.label ?? field.label,
+          placeholder: parsed.placeholder ?? field.placeholder,
+        });
+      }
+      if (parsed.alternatives) {
+        setCopyAlternatives(parsed.alternatives);
+      }
+    } catch {
+      setCopyError("Failed to connect to AI service");
+    } finally {
+      setCopyLoading(false);
+    }
+  };
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Field Settings</h3>
@@ -133,6 +184,42 @@ function FieldSettingsPanel({
             onChange={(e) => onChange({ ...field, placeholder: e.target.value })}
             className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
           />
+        </div>
+      )}
+
+      {/* AI Generate Copy */}
+      {field.type !== "submit" && field.type !== "hidden" && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleGenerateCopy}
+            disabled={copyLoading}
+            className="w-full rounded border border-indigo-200 bg-indigo-50 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+          >
+            {copyLoading ? "Generating..." : "Generate Copy with AI"}
+          </button>
+          {copyError && (
+            <div className="rounded bg-red-50 p-1.5 text-[11px] text-red-600 dark:bg-red-900/20 dark:text-red-400">{copyError}</div>
+          )}
+          {copyAlternatives.length > 0 && (
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Alternatives:</span>
+              {copyAlternatives.map((alt, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    onChange({ ...field, label: alt.label, placeholder: alt.placeholder ?? field.placeholder });
+                    setCopyAlternatives([]);
+                  }}
+                  className="block w-full rounded border border-zinc-200 px-2 py-1 text-left text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  <span className="font-medium">{alt.label}</span>
+                  {alt.placeholder && <span className="ml-1 text-zinc-400">({alt.placeholder})</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -277,9 +364,11 @@ function FieldSettingsPanel({
 
 function AiCopilotPanel({
   campaignType,
+  currentSchema,
   onApplySchema,
 }: {
   campaignType: string;
+  currentSchema: FormSchema | null;
   onApplySchema: (schema: FormSchema) => void;
 }) {
   type AiChatMessage = {
@@ -304,6 +393,10 @@ function AiCopilotPanel({
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [relativeNow, setRelativeNow] = useState(Date.now());
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [schemaHistory, setSchemaHistory] = useState<FormSchema[]>([]);
+  const [ctaOptions, setCtaOptions] = useState<Array<{ text: string; rationale: string }>>([]);
+  const [ctaLoading, setCtaLoading] = useState(false);
+  const [ctaError, setCtaError] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setRelativeNow(Date.now()), 60_000);
@@ -419,8 +512,12 @@ function AiCopilotPanel({
         if (jsonMatch) {
           jsonStr = jsonMatch[1];
         }
-        const schema = JSON.parse(jsonStr) as FormSchema;
-        onApplySchema(schema);
+        const parsedSchema = JSON.parse(jsonStr) as FormSchema;
+        // Save current schema to history for undo
+        if (currentSchema) {
+          setSchemaHistory((prev) => [...prev, currentSchema]);
+        }
+        onApplySchema(parsedSchema);
       } catch {
         setMessages((prev) =>
           prev.map((message) =>
@@ -521,6 +618,88 @@ function AiCopilotPanel({
           </div>
         ))}
         <div ref={bottomSentinelRef} />
+      </div>
+
+      {/* Undo button */}
+      {schemaHistory.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            const prev = schemaHistory[schemaHistory.length - 1];
+            setSchemaHistory((h) => h.slice(0, -1));
+            onApplySchema(prev);
+          }}
+          className="w-full rounded border border-zinc-200 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          Undo last AI change ({schemaHistory.length})
+        </button>
+      )}
+
+      {/* CTA Optimization */}
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={async () => {
+            if (!currentSchema) return;
+            setCtaLoading(true);
+            setCtaError("");
+            setCtaOptions([]);
+            try {
+              const res = await fetch("/api/ai/generate-cta", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  formContext: `Fields: ${currentSchema.fields.map((f) => f.label).join(", ")}. Submit label: ${currentSchema.submitLabel}`,
+                  campaignType,
+                }),
+              });
+              if (!res.ok) {
+                const d = await res.json();
+                setCtaError(d.error ?? "Failed to generate CTA options");
+                return;
+              }
+              const d = await res.json();
+              let jsonStr = d.options;
+              const match = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+              if (match) jsonStr = match[1];
+              const parsed = JSON.parse(jsonStr) as Array<{ text: string; rationale: string }>;
+              setCtaOptions(parsed);
+            } catch {
+              setCtaError("Failed to connect to AI service");
+            } finally {
+              setCtaLoading(false);
+            }
+          }}
+          disabled={ctaLoading || !currentSchema}
+          className="w-full rounded border border-amber-200 bg-amber-50 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+        >
+          {ctaLoading ? "Generating..." : "Optimize CTA Button Text"}
+        </button>
+        {ctaError && (
+          <div className="rounded bg-red-50 p-1.5 text-[11px] text-red-600 dark:bg-red-900/20 dark:text-red-400">{ctaError}</div>
+        )}
+        {ctaOptions.length > 0 && (
+          <div className="space-y-1">
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Pick a CTA:</span>
+            {ctaOptions.map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  if (currentSchema) {
+                    setSchemaHistory((prev) => [...prev, currentSchema]);
+                    onApplySchema({ ...currentSchema, submitLabel: opt.text });
+                  }
+                  setCtaOptions([]);
+                }}
+                className="block w-full rounded border border-zinc-200 px-2 py-1.5 text-left text-[11px] hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">{opt.text}</span>
+                <span className="ml-1 text-zinc-400">— {opt.rationale}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -889,6 +1068,7 @@ export default function BuilderPage() {
             <FieldSettingsPanel
               field={selectedField}
               allFields={schema.fields}
+              campaignType={campaign.type}
               onChange={handleFieldChange}
               onDelete={() => deleteField(selectedField.fieldId)}
             />
@@ -900,6 +1080,7 @@ export default function BuilderPage() {
             <StyleEditor
               style={schema.style}
               submitLabel={schema.submitLabel}
+              campaignType={campaign.type}
               onChange={(style) => updateSchema({ ...schema, style })}
               onSubmitLabelChange={(label) => updateSchema({ ...schema, submitLabel: label })}
             />
@@ -914,7 +1095,7 @@ export default function BuilderPage() {
             <SpamSettings campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
           {rightTab === "ai" && (
-            <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiCopilotPanel campaignType={campaign.type} currentSchema={schema} onApplySchema={updateSchema} />
           )}
         </div>
       </div>

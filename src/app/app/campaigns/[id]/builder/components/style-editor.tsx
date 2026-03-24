@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 interface FormStyle {
   backgroundColor: string;
   textColor: string;
@@ -16,6 +18,7 @@ interface FormStyle {
 export interface StyleEditorProps {
   style: FormStyle;
   submitLabel: string;
+  campaignType?: string;
   onChange: (style: FormStyle) => void;
   onSubmitLabelChange: (label: string) => void;
 }
@@ -57,11 +60,64 @@ function ColorRow({
   );
 }
 
-export function StyleEditor({ style, submitLabel, onChange, onSubmitLabelChange }: StyleEditorProps) {
+export function StyleEditor({ style, submitLabel, campaignType, onChange, onSubmitLabelChange }: StyleEditorProps) {
   const update = (patch: Partial<FormStyle>) => onChange({ ...style, ...patch });
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  const handleSuggestStyle = async () => {
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/suggest-style", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignType: campaignType ?? "popup",
+          brandColors: [style.buttonColor, style.backgroundColor].filter(Boolean),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setAiError(data.error ?? "Failed to suggest style");
+        return;
+      }
+      const data = await res.json();
+      let parsed: Partial<FormStyle>;
+      try {
+        let jsonStr = data.style;
+        const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) jsonStr = jsonMatch[1];
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        setAiError("AI returned invalid style data");
+        return;
+      }
+      onChange({ ...style, ...parsed });
+    } catch {
+      setAiError("Failed to connect to AI service");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
+      {/* AI Style Suggestion */}
+      <section className="space-y-2">
+        <button
+          type="button"
+          onClick={handleSuggestStyle}
+          disabled={aiLoading}
+          className="w-full rounded border border-indigo-200 bg-indigo-50 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:bg-indigo-900"
+        >
+          {aiLoading ? "Generating..." : "Suggest Style with AI"}
+        </button>
+        {aiError && (
+          <div className="rounded bg-red-50 p-1.5 text-[11px] text-red-600 dark:bg-red-900/20 dark:text-red-400">{aiError}</div>
+        )}
+      </section>
+
       {/* Colors */}
       <section className="space-y-3">
         <h3 className={headingClasses}>Colors</h3>
