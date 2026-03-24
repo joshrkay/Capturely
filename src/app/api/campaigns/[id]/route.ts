@@ -10,6 +10,7 @@ const updateCampaignSchema = z.object({
   targetingJson: z.string().optional(),
   triggerJson: z.string().optional(),
   frequencyJson: z.string().optional(),
+  spamConfigJson: z.string().optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),
   autoOptimize: z.boolean().optional(),
 });
@@ -84,6 +85,7 @@ export async function PATCH(
     if (parsed.data.targetingJson !== undefined) data.targetingJson = parsed.data.targetingJson;
     if (parsed.data.triggerJson !== undefined) data.triggerJson = parsed.data.triggerJson;
     if (parsed.data.frequencyJson !== undefined) data.frequencyJson = parsed.data.frequencyJson;
+    if (parsed.data.spamConfigJson !== undefined) data.spamConfigJson = parsed.data.spamConfigJson;
     if (parsed.data.webhookUrl !== undefined) data.webhookUrl = parsed.data.webhookUrl;
     if (parsed.data.autoOptimize !== undefined) data.autoOptimize = parsed.data.autoOptimize;
     data.hasUnpublishedChanges = true;

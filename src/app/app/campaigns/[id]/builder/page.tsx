@@ -13,6 +13,7 @@ import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import { SpamSettings } from "./components/spam-settings";
 import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
@@ -40,6 +41,7 @@ interface Campaign {
   targetingJson: string | null;
   triggerJson: string | null;
   frequencyJson: string | null;
+  spamConfigJson: string | null;
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
   accountPlanKey: string;
@@ -650,7 +652,7 @@ export default function BuilderPage() {
   const [activeVariantId, setActiveVariantId] = useState<string>("");
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps">("field");
+  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps" | "spam">("field");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
@@ -959,7 +961,7 @@ export default function BuilderPage() {
         {/* Right: Settings */}
         <div className="w-72 shrink-0 border-l border-zinc-200 bg-white p-3 overflow-y-auto dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex gap-1">
-            {(["field", "style", "steps", "settings", "ai"] as const).map((tab) => (
+            {(["field", "style", "steps", "settings", "spam", "ai"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -969,7 +971,7 @@ export default function BuilderPage() {
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400"
                 }`}
               >
-                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab}
+                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab === "spam" ? "Spam" : tab}
               </button>
             ))}
           </div>
@@ -998,6 +1000,9 @@ export default function BuilderPage() {
           )}
           {rightTab === "settings" && (
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
+          )}
+          {rightTab === "spam" && (
+            <SpamSettings campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
           {rightTab === "ai" && (
             <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />

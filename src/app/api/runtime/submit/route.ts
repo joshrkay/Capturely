@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/runtime-token";
 import { fireWebhook } from "@/lib/webhooks";
+import { checkSpam, parseSpamConfig } from "@/lib/spam";
 
 const submitSchema = z.object({
   publicKey: z.string().min(1),
@@ -12,6 +13,7 @@ const submitSchema = z.object({
   visitorId: z.string().optional(),
   submissionId: z.string().uuid("submissionId must be a valid UUID"),
   fields: z.record(z.string(), z.string()),
+  recaptchaToken: z.string().optional(),
 });
 
 const corsHeaders = {
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { publicKey, campaignId, variantId, experimentId, visitorId, submissionId, fields } = parsed.data;
+    const { publicKey, campaignId, variantId, experimentId, visitorId, submissionId, fields, recaptchaToken } = parsed.data;
 
     // Token public key must match payload
     if (tokenPk !== publicKey) {
@@ -89,6 +91,32 @@ export async function POST(req: NextRequest) {
     const phone: string | null = fields["phone"] ?? fields["Phone"] ?? null;
     const name: string | null = fields["name"] ?? fields["Name"] ?? fields["full_name"] ?? null;
 
+    // Extract client IP for spam protection
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      req.headers.get("x-real-ip") ??
+      "unknown";
+
+    // Spam protection: check campaign-level spam config
+    let isSpam = false;
+    if (campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { spamConfigJson: true },
+      });
+      const spamConfig = parseSpamConfig(campaign?.spamConfigJson ?? null);
+      if (spamConfig) {
+        const spamResult = await checkSpam({
+          config: spamConfig,
+          ip,
+          email: email ?? undefined,
+          campaignId,
+          recaptchaToken,
+        });
+        isSpam = spamResult.isSpam;
+      }
+    }
+
     // Idempotent upsert — if this submissionId already exists for this site, skip
     try {
       await prisma.submission.create({
@@ -102,6 +130,8 @@ export async function POST(req: NextRequest) {
           phone,
           name,
           fieldsJson: JSON.stringify(fields),
+          ipAddress: ip !== "unknown" ? ip : null,
+          ...(isSpam ? { status: "spam" } : {}),
         },
       });
     } catch (error: unknown) {
@@ -115,6 +145,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, submissionId, duplicate: true }, { headers: corsHeaders });
       }
       throw error;
+    }
+
+    // Skip usage increment and webhooks for spam submissions
+    if (isSpam) {
+      return NextResponse.json({ ok: true, submissionId }, { status: 201, headers: corsHeaders });
     }
 
     // Increment usage counter atomically
