@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -10,6 +10,7 @@ import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
+import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
@@ -312,31 +313,134 @@ function AiCopilotPanel({
   campaignType: string;
   onApplySchema: (schema: FormSchema) => void;
 }) {
+  type AiChatMessage = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: number;
+    status?: "loading" | "success" | "error";
+    error?: string;
+    promptForRetry?: string;
+  };
+
+  const STARTER_PROMPTS = [
+    "Build a lead capture form for a coffee shop with name, email, and favorite drink.",
+    "Create a booking request form for a salon with service type, date, and notes.",
+    "Generate a waitlist form for a product launch with email and referral source.",
+    "Design a demo request form for SaaS with company size, role, and goals.",
+  ];
+
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [history, setHistory] = useState<Array<{ prompt: string; response: string }>>([]);
+  const [messages, setMessages] = useState<AiChatMessage[]>([]);
+  const [relativeNow, setRelativeNow] = useState(Date.now());
+  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+  useEffect(() => {
+    const timer = window.setInterval(() => setRelativeNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    bottomSentinelRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
+
+  const formatRelativeTimestamp = (createdAt: number) => {
+    const diffSeconds = Math.round((createdAt - relativeNow) / 1000);
+    const abs = Math.abs(diffSeconds);
+    const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+    if (abs < 60) return rtf.format(diffSeconds, "second");
+    if (abs < 3600) return rtf.format(Math.round(diffSeconds / 60), "minute");
+    if (abs < 86_400) return rtf.format(Math.round(diffSeconds / 3600), "hour");
+    return rtf.format(Math.round(diffSeconds / 86_400), "day");
+  };
+
+  const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
+    const trimmedPrompt = inputPrompt.trim();
+    if (!trimmedPrompt) return;
     setLoading(true);
-    setError("");
+    const now = Date.now();
+    const assistantMessageId = retryMessageId ?? `${now}-assistant`;
+
+    if (retryMessageId) {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === retryMessageId
+            ? {
+                ...message,
+                content: "",
+                createdAt: now,
+                status: "loading",
+                error: undefined,
+              }
+            : message,
+        ),
+      );
+    } else {
+      const userMessage: AiChatMessage = {
+        id: `${now}-user`,
+        role: "user",
+        content: trimmedPrompt,
+        createdAt: now,
+      };
+      const assistantLoadingMessage: AiChatMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        createdAt: now,
+        status: "loading",
+        promptForRetry: trimmedPrompt,
+      };
+      setMessages((prev) => [...prev, userMessage, assistantLoadingMessage]);
+    }
 
     try {
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, campaignType }),
+        body: JSON.stringify({ prompt: trimmedPrompt, campaignType }),
       });
 
+      let errorText = "AI generation failed";
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error ?? "AI generation failed");
+        try {
+          const data = await res.json();
+          errorText = data.error ?? errorText;
+        } catch {
+          // noop - keep fallback error text
+        }
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  createdAt: Date.now(),
+                  status: "error",
+                  error: errorText,
+                  promptForRetry: trimmedPrompt,
+                }
+              : message,
+          ),
+        );
         return;
       }
 
       const data = await res.json();
-      setHistory((prev) => [...prev, { prompt, response: data.schema }]);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: "Schema applied",
+                createdAt: Date.now(),
+                status: "success",
+                error: undefined,
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
 
       // Try to parse and apply the schema
       try {
@@ -349,12 +453,35 @@ function AiCopilotPanel({
         const schema = JSON.parse(jsonStr) as FormSchema;
         onApplySchema(schema);
       } catch {
-        setError("AI returned an invalid schema. Try rephrasing your prompt.");
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  status: "error",
+                  error: "AI returned an invalid schema. Try rephrasing your prompt.",
+                  promptForRetry: trimmedPrompt,
+                }
+              : message,
+          ),
+        );
       }
 
       setPrompt("");
     } catch {
-      setError("Failed to connect to AI service");
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                createdAt: Date.now(),
+                status: "error",
+                error: "Failed to connect to AI service",
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -365,17 +492,66 @@ function AiCopilotPanel({
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">Describe your form and AI will generate it for you.</p>
 
-      {error && (
-        <div className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{error}</div>
+      {messages.length === 0 && (
+        <div className="flex flex-wrap gap-2">
+          {STARTER_PROMPTS.map((starterPrompt) => (
+            <button
+              key={starterPrompt}
+              type="button"
+              onClick={() => {
+                setPrompt(starterPrompt);
+                void sendPrompt(starterPrompt);
+              }}
+              disabled={loading}
+              className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800/70 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+            >
+              {starterPrompt}
+            </button>
+          ))}
+        </div>
       )}
 
-      <div className="max-h-48 space-y-2 overflow-y-auto">
-        {history.map((h, i) => (
-          <div key={i} className="rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-800">
-            <div className="font-medium text-zinc-700 dark:text-zinc-300">{h.prompt}</div>
-            <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema applied</div>
+      <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-zinc-200 bg-zinc-50/40 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
+        {messages.map((message) => (
+          <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs shadow-sm ${
+                message.role === "user"
+                  ? "rounded-br-sm bg-indigo-600 text-white"
+                  : "rounded-bl-sm bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              }`}
+            >
+              {message.role === "assistant" && message.status === "loading" ? (
+                <div className="flex items-center gap-1 py-1" aria-label="Assistant is typing">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.2s] dark:bg-zinc-500" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.1s] dark:bg-zinc-500" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500" />
+                </div>
+              ) : (
+                <div>{message.content}</div>
+              )}
+
+              <div className="mt-1 text-[10px] opacity-75">{formatRelativeTimestamp(message.createdAt)}</div>
+
+              {message.role === "assistant" && message.status === "error" && message.error && (
+                <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+                  <div>{message.error}</div>
+                  {message.promptForRetry && (
+                    <button
+                      type="button"
+                      onClick={() => void sendPrompt(message.promptForRetry!, message.id)}
+                      disabled={loading}
+                      className="mt-1 font-semibold underline decoration-dotted underline-offset-2 hover:text-red-800 disabled:opacity-60 dark:hover:text-red-200"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ))}
+        <div ref={bottomSentinelRef} />
       </div>
 
       <div className="flex gap-2">
@@ -383,14 +559,19 @@ function AiCopilotPanel({
           type="text"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void sendPrompt(prompt);
+            }
+          }}
           placeholder="e.g. Lead capture form for a coffee shop"
           disabled={loading}
           className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <button
           type="button"
-          onClick={handleGenerate}
+          onClick={() => void sendPrompt(prompt)}
           disabled={loading || !prompt.trim()}
           className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
@@ -417,8 +598,20 @@ export default function BuilderPage() {
   const [message, setMessage] = useState("");
   const [viewport, setViewport] = useState<ViewportKey>("desktop");
   const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const loadVariantSchema = useCallback((variantId: string, campaignData: Campaign | null) => {
+    if (!campaignData) return;
+    const variant = campaignData.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    try {
+      setSchema(JSON.parse(variant.schemaJson));
+    } catch {
+      // ignore malformed schema
+    }
+  }, []);
 
   // Load campaign
   useEffect(() => {
@@ -429,19 +622,10 @@ export default function BuilderPage() {
         const control = data.variants.find((v) => v.isControl) ?? data.variants[0];
         if (control) {
           setActiveVariantId(control.id);
-          try { setSchema(JSON.parse(control.schemaJson)); } catch { /* ignore */ }
+          loadVariantSchema(control.id, data);
         }
       });
-  }, [id]);
-
-  // When active variant changes
-  useEffect(() => {
-    if (!campaign) return;
-    const variant = campaign.variants.find((v) => v.id === activeVariantId);
-    if (variant) {
-      try { setSchema(JSON.parse(variant.schemaJson)); } catch { /* ignore */ }
-    }
-  }, [activeVariantId, campaign]);
+  }, [id, loadVariantSchema]);
 
   const updateSchema = useCallback((updated: FormSchema) => {
     setSchema(updated);
@@ -543,7 +727,7 @@ export default function BuilderPage() {
     setTimeout(() => setMessage(""), 2000);
   };
 
-  const handlePublish = async () => {
+  const handlePublish = async (): Promise<boolean> => {
     await handleSave();
     setPublishing(true);
     setMessage("");
@@ -552,12 +736,16 @@ export default function BuilderPage() {
     if (!res.ok) {
       const data = await res.json();
       setMessage(`Error: ${data.error}`);
+      setPublishing(false);
+      setTimeout(() => setMessage(""), 3000);
+      return false;
     } else {
       setMessage("Published!");
       setCampaign((prev) => prev ? { ...prev, status: "published", hasUnpublishedChanges: false } : prev);
     }
     setPublishing(false);
     setTimeout(() => setMessage(""), 3000);
+    return true;
   };
 
   const handleCampaignUpdate = (updates: Record<string, unknown>) => {
@@ -596,9 +784,17 @@ export default function BuilderPage() {
             campaignId={campaign.id}
             variants={campaign.variants}
             activeVariantId={activeVariantId}
-            onActiveVariantChange={setActiveVariantId}
+            onActiveVariantChange={(variantId) => {
+              setActiveVariantId(variantId);
+              loadVariantSchema(variantId, campaign);
+            }}
             onVariantsChange={(updated) =>
-              setCampaign((prev) => prev ? { ...prev, variants: updated } : prev)
+              setCampaign((prev) => {
+                if (!prev) return prev;
+                const updatedCampaign = { ...prev, variants: updated };
+                loadVariantSchema(activeVariantId, updatedCampaign);
+                return updatedCampaign;
+              })
             }
             plan={resolvePlan(campaign.accountPlanKey)}
             canEdit={true}
@@ -612,14 +808,21 @@ export default function BuilderPage() {
             {saving ? "Saving..." : "Save Draft"}
           </button>
           <button
-            onClick={handlePublish}
-            disabled={publishing}
+            onClick={() => setIsExportModalOpen(true)}
             className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {publishing ? "Publishing..." : "Publish"}
+            Publish / Get Code
           </button>
         </div>
       </div>
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onPublish={handlePublish}
+        publishing={publishing}
+        campaign={campaign}
+      />
 
       {/* Three-panel layout */}
       <div className="flex flex-1 overflow-hidden">
