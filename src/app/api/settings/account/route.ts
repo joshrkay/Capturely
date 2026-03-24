@@ -1,53 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withAccountContext, AccountContextError } from "@/lib/account";
 import { prisma } from "@/lib/db";
-import { canManageBilling } from "@/lib/rbac";
-import { deleteAccountSchema } from "../schemas";
+import { AccountContextError, withAccountContext } from "@/lib/account";
+import { MemberRole } from "@/generated/prisma/client";
+import { deleteAccountSchema } from "@/lib/settings";
 
-/** DELETE /api/settings/account — Delete account */
+/** DELETE /api/settings/account */
 export async function DELETE(req: NextRequest) {
   try {
-    const { accountId, role } = await withAccountContext();
+    const ctx = await withAccountContext();
 
-    if (!canManageBilling(role)) {
-      return NextResponse.json(
-        { error: "Forbidden", code: "FORBIDDEN" },
-        { status: 403 }
-      );
+    if (ctx.role !== MemberRole.owner) {
+      return NextResponse.json({ error: "Forbidden", code: "FORBIDDEN" }, { status: 403 });
     }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json(
-        {
-          error: "Invalid input",
-          code: "VALIDATION_ERROR",
-          details: {
-            formErrors: ["Request body must be valid JSON."],
-            fieldErrors: {},
-          },
-        },
-        { status: 400 }
-      );
-    }
-
+    const body = await req.json();
     const parsed = deleteAccountSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        {
-          error: "Confirmation text must be DELETE",
-          code: "CONFIRMATION_MISMATCH",
-          details: parsed.error.flatten(),
-        },
+        { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
-    await prisma.account.delete({ where: { id: accountId } });
+    await prisma.account.delete({ where: { id: ctx.accountId } });
 
-    return NextResponse.json({ deleted: true });
+    return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AccountContextError) {
       return NextResponse.json(
