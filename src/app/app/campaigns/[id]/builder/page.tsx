@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -76,6 +77,15 @@ interface Campaign {
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
   accountPlanKey: string;
+}
+
+interface BillingStatus {
+  limits: {
+    aiGenerationsPerMonth: number | null;
+  };
+  usage: {
+    aiGenerationsCount: number;
+  };
 }
 
 const FIELD_TYPES: { type: FieldType; label: string }[] = [
@@ -317,9 +327,37 @@ function AiCopilotPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<Array<{ prompt: string; response: string }>>([]);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+
+  const refreshBillingStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/status");
+      if (!res.ok) return;
+      const data = await res.json() as BillingStatus;
+      setBilling(data);
+    } catch {
+      // ignore billing status failures; generation endpoint still enforces limits
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshBillingStatus();
+    const timer = window.setInterval(refreshBillingStatus, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshBillingStatus]);
+
+  const rawLimit = billing?.limits.aiGenerationsPerMonth;
+  const usageCount = billing?.usage.aiGenerationsCount ?? 0;
+  const hasFiniteLimit = typeof rawLimit === "number" && Number.isFinite(rawLimit);
+  const generationLimit = hasFiniteLimit ? rawLimit : null;
+  const limitIsDisabled = generationLimit === 0;
+  const limitReached = generationLimit !== null && generationLimit > 0 && usageCount >= generationLimit;
+  const usageText = generationLimit !== null
+    ? `${usageCount}/${generationLimit} generations used`
+    : `${usageCount} generations used`;
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || limitReached || limitIsDisabled) return;
     setLoading(true);
     setError("");
 
@@ -331,8 +369,17 @@ function AiCopilotPanel({
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error ?? "AI generation failed");
+        let apiError = "AI generation failed";
+        if (res.status === 402) {
+          apiError = "AI generation limit reached for your plan.";
+        } else if (res.status === 403) {
+          apiError = "Your current plan does not allow AI generation. Please upgrade to continue.";
+        } else {
+          const data = await res.json();
+          apiError = data.error ?? apiError;
+        }
+        setError(apiError);
+        await refreshBillingStatus();
         return;
       }
 
@@ -354,12 +401,32 @@ function AiCopilotPanel({
       }
 
       setPrompt("");
+      await refreshBillingStatus();
     } catch {
       setError("Failed to connect to AI service");
     } finally {
       setLoading(false);
     }
   };
+
+  if (limitIsDisabled) {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs dark:border-indigo-900 dark:bg-indigo-950/30">
+          <p className="text-indigo-700 dark:text-indigo-300">
+            AI Copilot is not available on your current plan.
+          </p>
+          <Link
+            href="/app/billing"
+            className="mt-2 inline-flex rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            Upgrade plan
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -392,12 +459,17 @@ function AiCopilotPanel({
         <button
           type="button"
           onClick={handleGenerate}
-          disabled={loading || !prompt.trim()}
+          disabled={loading || !prompt.trim() || limitReached}
           className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {loading ? "..." : "Generate"}
         </button>
       </div>
+      {billing && (
+        <div className={`text-xs ${limitReached ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"}`}>
+          {usageText}
+        </div>
+      )}
     </div>
   );
 }
