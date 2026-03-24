@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -8,49 +8,16 @@ import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
+import { AiChatPanel } from "../../components/ai-chat-panel";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface FormField {
-  fieldId: string;
-  type: FieldType;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  options?: Array<{ value: string; label: string }>;
-  visibilityCondition?: {
-    dependsOn: string;
-    operator: "equals" | "not_equals" | "contains" | "not_empty";
-    value?: string;
-  };
-}
-
-interface FormStyle {
-  backgroundColor: string;
-  textColor: string;
-  buttonColor: string;
-  buttonTextColor: string;
-  borderRadius: string;
-  fontFamily: string;
-  padding?: string;
-  buttonBorderRadius?: string;
-  buttonHoverColor?: string;
-  boxShadow?: string;
-}
-
-interface FormSchema {
-  fields: FormField[];
-  style: FormStyle;
-  submitLabel: string;
-  steps?: Array<{ label: string; fieldIds: string[] }>;
-  progressBarStyle?: "dots" | "bar" | "steps" | "none";
-}
 
 interface Variant {
   id: string;
@@ -315,6 +282,23 @@ function AiCopilotPanel({
   onApplySchema: (schema: FormSchema) => void;
   standalone?: boolean;
 }) {
+  type AiChatMessage = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: number;
+    status?: "loading" | "success" | "error";
+    error?: string;
+    promptForRetry?: string;
+  };
+
+  const STARTER_PROMPTS = [
+    "Build a lead capture form for a coffee shop with name, email, and favorite drink.",
+    "Create a booking request form for a salon with service type, date, and notes.",
+    "Generate a waitlist form for a product launch with email and referral source.",
+    "Design a demo request form for SaaS with company size, role, and goals.",
+  ];
+
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -353,26 +337,91 @@ function AiCopilotPanel({
     return () => controller.abort();
   }, [standalone]);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+  const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
+    const trimmedPrompt = inputPrompt.trim();
+    if (!trimmedPrompt) return;
     setLoading(true);
-    setError("");
+    const now = Date.now();
+    const assistantMessageId = retryMessageId ?? `${now}-assistant`;
+
+    if (retryMessageId) {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === retryMessageId
+            ? {
+                ...message,
+                content: "",
+                createdAt: now,
+                status: "loading",
+                error: undefined,
+              }
+            : message,
+        ),
+      );
+    } else {
+      const userMessage: AiChatMessage = {
+        id: `${now}-user`,
+        role: "user",
+        content: trimmedPrompt,
+        createdAt: now,
+      };
+      const assistantLoadingMessage: AiChatMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        createdAt: now,
+        status: "loading",
+        promptForRetry: trimmedPrompt,
+      };
+      setMessages((prev) => [...prev, userMessage, assistantLoadingMessage]);
+    }
 
     try {
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, campaignType }),
+        body: JSON.stringify({ prompt: trimmedPrompt, campaignType }),
       });
 
+      let errorText = "AI generation failed";
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error ?? "AI generation failed");
+        try {
+          const data = await res.json();
+          errorText = data.error ?? errorText;
+        } catch {
+          // noop - keep fallback error text
+        }
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  createdAt: Date.now(),
+                  status: "error",
+                  error: errorText,
+                  promptForRetry: trimmedPrompt,
+                }
+              : message,
+          ),
+        );
         return;
       }
 
       const data = await res.json();
-      setHistory((prev) => [...prev, { prompt, response: data.schema }]);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: "Schema applied",
+                createdAt: Date.now(),
+                status: "success",
+                error: undefined,
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
 
       // Try to parse and apply the schema
       try {
@@ -385,12 +434,35 @@ function AiCopilotPanel({
         const schema = JSON.parse(jsonStr) as FormSchema;
         setCurrentSchema(schema);
       } catch {
-        setError("AI returned an invalid schema. Try rephrasing your prompt.");
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  status: "error",
+                  error: "AI returned an invalid schema. Try rephrasing your prompt.",
+                  promptForRetry: trimmedPrompt,
+                }
+              : message,
+          ),
+        );
       }
 
       setPrompt("");
     } catch {
-      setError("Failed to connect to AI service");
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                createdAt: Date.now(),
+                status: "error",
+                error: "Failed to connect to AI service",
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -448,8 +520,23 @@ function AiCopilotPanel({
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">Describe your form and AI will generate it for you.</p>
 
-      {error && (
-        <div className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{error}</div>
+      {messages.length === 0 && (
+        <div className="flex flex-wrap gap-2">
+          {STARTER_PROMPTS.map((starterPrompt) => (
+            <button
+              key={starterPrompt}
+              type="button"
+              onClick={() => {
+                setPrompt(starterPrompt);
+                void sendPrompt(starterPrompt);
+              }}
+              disabled={loading}
+              className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800/70 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+            >
+              {starterPrompt}
+            </button>
+          ))}
+        </div>
       )}
 
       <div className="max-h-48 space-y-2 overflow-y-auto">
@@ -459,6 +546,7 @@ function AiCopilotPanel({
             <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema generated</div>
           </div>
         ))}
+        <div ref={bottomSentinelRef} />
       </div>
 
       <div className="flex gap-2">
@@ -466,7 +554,12 @@ function AiCopilotPanel({
           type="text"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void sendPrompt(prompt);
+            }
+          }}
           placeholder="e.g. Lead capture form for a coffee shop"
           disabled={loading || submitting}
           className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -880,7 +973,7 @@ export default function BuilderPage() {
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
           {rightTab === "ai" && (
-            <AiCopilotPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />
           )}
         </div>
       </div>

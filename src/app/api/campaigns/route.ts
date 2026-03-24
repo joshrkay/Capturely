@@ -4,6 +4,35 @@ import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageCampaigns, canView } from "@/lib/rbac";
 
+const formOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+});
+
+const formFieldSchema = z.object({
+  fieldId: z.string().min(1),
+  type: z.string().min(1),
+  label: z.string().min(1),
+  placeholder: z.string().optional(),
+  required: z.boolean().optional(),
+  options: z.array(formOptionSchema).optional(),
+}).passthrough();
+
+const formStyleSchema = z.object({
+  backgroundColor: z.string().min(1),
+  textColor: z.string().min(1),
+  buttonColor: z.string().min(1),
+  buttonTextColor: z.string().min(1),
+  borderRadius: z.string().min(1),
+  fontFamily: z.string().min(1),
+}).passthrough();
+
+const campaignSchemaPayloadSchema = z.object({
+  fields: z.array(formFieldSchema),
+  style: formStyleSchema,
+  submitLabel: z.string().min(1),
+}).passthrough();
+
 const createCampaignSchema = z.object({
   siteId: z.string().min(1),
   name: z.string().min(1).max(200),
