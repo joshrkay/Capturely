@@ -2,7 +2,7 @@ export type TeamTabMember = {
   id: string;
   userId: string;
   role: string;
-  createdAt: Date;
+  createdAt: Date | string;
 };
 
 type TeamTabProps = {
