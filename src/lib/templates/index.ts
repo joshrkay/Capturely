@@ -1,6 +1,7 @@
 /**
  * Campaign template library — 10 curated e-commerce templates.
  */
+import type { FormSchema } from "@capturely/shared-forms";
 
 export interface CampaignTemplate {
   id: string;
@@ -8,25 +9,7 @@ export interface CampaignTemplate {
   description: string;
   category: string;
   type: "popup" | "inline";
-  schema: {
-    fields: Array<{
-      fieldId: string;
-      type: string;
-      label: string;
-      placeholder?: string;
-      required?: boolean;
-      options?: Array<{ value: string; label: string }>;
-    }>;
-    style: {
-      backgroundColor: string;
-      textColor: string;
-      buttonColor: string;
-      buttonTextColor: string;
-      borderRadius: string;
-      fontFamily: string;
-    };
-    submitLabel: string;
-  };
+  schema: FormSchema;
 }
 
 export const TEMPLATES: CampaignTemplate[] = [
