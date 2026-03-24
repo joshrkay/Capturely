@@ -11,8 +11,7 @@ const navLinks = [
   { href: "/app/submissions", label: "Submissions" },
   { href: "/app/analytics", label: "Analytics" },
   { href: "/app/billing", label: "Billing" },
-  { href: "/app/integrations", label: "Integrations" },
-  { href: "/app/settings/team", label: "Team" },
+  { href: "/app/settings", label: "Settings" },
 ];
 
 export default function AppLayout({
