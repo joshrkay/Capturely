@@ -1,24 +1,24 @@
-type TeamMember = {
+export type TeamTabMember = {
   id: string;
   userId: string;
   role: string;
-  createdAt: string;
+  createdAt: Date | string;
 };
 
 type TeamTabProps = {
-  members: TeamMember[];
+  members: TeamTabMember[];
   currentUserId: string;
-  role: "owner" | "admin" | "member";
+  isManager: boolean;
 };
 
-export function TeamTab({ members, currentUserId, role }: TeamTabProps) {
-  const isManager = role === "owner" || role === "admin";
-
+export function TeamTab({ members, currentUserId, isManager }: TeamTabProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Team Members</h2>
+          <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+            Team Members
+          </h2>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             Manage your team members and their roles.
           </p>
