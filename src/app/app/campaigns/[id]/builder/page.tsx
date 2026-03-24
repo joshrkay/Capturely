@@ -8,49 +8,17 @@ import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
+import { AiChatPanel } from "../../components/ai-chat-panel";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import { SpamSettings } from "./components/spam-settings";
+import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface FormField {
-  fieldId: string;
-  type: FieldType;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  options?: Array<{ value: string; label: string }>;
-  visibilityCondition?: {
-    dependsOn: string;
-    operator: "equals" | "not_equals" | "contains" | "not_empty";
-    value?: string;
-  };
-}
-
-interface FormStyle {
-  backgroundColor: string;
-  textColor: string;
-  buttonColor: string;
-  buttonTextColor: string;
-  borderRadius: string;
-  fontFamily: string;
-  padding?: string;
-  buttonBorderRadius?: string;
-  buttonHoverColor?: string;
-  boxShadow?: string;
-}
-
-interface FormSchema {
-  fields: FormField[];
-  style: FormStyle;
-  submitLabel: string;
-  steps?: Array<{ label: string; fieldIds: string[] }>;
-  progressBarStyle?: "dots" | "bar" | "steps" | "none";
-}
 
 interface Variant {
   id: string;
@@ -73,6 +41,7 @@ interface Campaign {
   targetingJson: string | null;
   triggerJson: string | null;
   frequencyJson: string | null;
+  spamConfigJson: string | null;
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
   accountPlanKey: string;
@@ -135,12 +104,43 @@ function FieldSettingsPanel({
   allFields,
   onChange,
   onDelete,
+  campaignType,
 }: {
   field: FormField;
   allFields: FormField[];
   onChange: (updated: FormField) => void;
   onDelete: () => void;
+  campaignType?: string;
 }) {
+  const [ctaOptions, setCtaOptions] = useState<Array<{ text: string; rationale: string }>>([]);
+  const [ctaLoading, setCtaLoading] = useState(false);
+  const [ctaError, setCtaError] = useState("");
+
+  async function handleSuggestCta() {
+    setCtaLoading(true);
+    setCtaError("");
+    setCtaOptions([]);
+    try {
+      const formContext = allFields.map((f) => f.label).join(", ");
+      const res = await fetch("/api/ai/suggest-cta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignType: campaignType ?? "popup", formContext }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setCtaError((data as { error?: string }).error ?? "Failed to generate CTA options");
+        return;
+      }
+      const data = await res.json() as { options: Array<{ text: string; rationale: string }> };
+      setCtaOptions(data.options ?? []);
+    } catch {
+      setCtaError("Failed to connect to AI service");
+    } finally {
+      setCtaLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Field Settings</h3>
@@ -154,6 +154,43 @@ function FieldSettingsPanel({
           className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
       </div>
+
+      {field.type === "submit" && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Button text</label>
+            <button
+              type="button"
+              onClick={() => void handleSuggestCta()}
+              disabled={ctaLoading}
+              className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 disabled:opacity-50"
+            >
+              {ctaLoading ? "Generating…" : "Suggest CTA"}
+            </button>
+          </div>
+          {ctaError && (
+            <p className="mb-1 text-xs text-red-500">{ctaError}</p>
+          )}
+          {ctaOptions.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {ctaOptions.map((opt, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    onChange({ ...field, label: opt.text });
+                    setCtaOptions([]);
+                  }}
+                  title={opt.rationale}
+                  className="block w-full rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-left text-xs text-zinc-700 hover:border-indigo-400 hover:bg-indigo-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                >
+                  {opt.text}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {field.type !== "submit" && field.type !== "checkbox" && field.type !== "hidden" && (
         <div>
@@ -592,7 +629,7 @@ export default function BuilderPage() {
   const [activeVariantId, setActiveVariantId] = useState<string>("");
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps">("field");
+  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps" | "spam">("field");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
@@ -901,7 +938,7 @@ export default function BuilderPage() {
         {/* Right: Settings */}
         <div className="w-72 shrink-0 border-l border-zinc-200 bg-white p-3 overflow-y-auto dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex gap-1">
-            {(["field", "style", "steps", "settings", "ai"] as const).map((tab) => (
+            {(["field", "style", "steps", "settings", "spam", "ai"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -911,7 +948,7 @@ export default function BuilderPage() {
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400"
                 }`}
               >
-                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab}
+                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab === "spam" ? "Spam" : tab}
               </button>
             ))}
           </div>
@@ -922,6 +959,7 @@ export default function BuilderPage() {
               allFields={schema.fields}
               onChange={handleFieldChange}
               onDelete={() => deleteField(selectedField.fieldId)}
+              campaignType={campaign?.type}
             />
           )}
           {rightTab === "field" && !selectedField && (
@@ -941,8 +979,11 @@ export default function BuilderPage() {
           {rightTab === "settings" && (
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
+          {rightTab === "spam" && (
+            <SpamSettings campaign={campaign} onUpdate={handleCampaignUpdate} />
+          )}
           {rightTab === "ai" && (
-            <AiCopilotPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />
           )}
         </div>
       </div>
