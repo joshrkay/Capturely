@@ -146,8 +146,9 @@ model Campaign {
   // Targeting & trigger config stored as JSON
   targetingJson String? @map("targeting_json")
   triggerJson   String? @map("trigger_json")
-  frequencyJson String? @map("frequency_json")
-  webhookUrl    String? @map("webhook_url")
+  frequencyJson  String? @map("frequency_json")
+  spamConfigJson String? @map("spam_config_json")
+  webhookUrl     String? @map("webhook_url")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -198,6 +199,7 @@ enum SubmissionStatus {
   new_submission @map("new")
   read
   archived
+  spam
 }
 
 model Submission {
@@ -212,6 +214,7 @@ model Submission {
   phone        String?
   name         String?
   fieldsJson   String           @map("fields_json")
+  ipAddress    String?          @map("ip_address")
   status       SubmissionStatus @default(new_submission)
   createdAt    DateTime         @default(now()) @map("created_at")
 
