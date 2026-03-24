@@ -4,11 +4,41 @@ import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageCampaigns, canView } from "@/lib/rbac";
 
+const formOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+});
+
+const formFieldSchema = z.object({
+  fieldId: z.string().min(1),
+  type: z.string().min(1),
+  label: z.string().min(1),
+  placeholder: z.string().optional(),
+  required: z.boolean().optional(),
+  options: z.array(formOptionSchema).optional(),
+}).passthrough();
+
+const formStyleSchema = z.object({
+  backgroundColor: z.string().min(1),
+  textColor: z.string().min(1),
+  buttonColor: z.string().min(1),
+  buttonTextColor: z.string().min(1),
+  borderRadius: z.string().min(1),
+  fontFamily: z.string().min(1),
+}).passthrough();
+
+const campaignSchemaPayloadSchema = z.object({
+  fields: z.array(formFieldSchema),
+  style: formStyleSchema,
+  submitLabel: z.string().min(1),
+}).passthrough();
+
 const createCampaignSchema = z.object({
   siteId: z.string().min(1),
   name: z.string().min(1).max(200),
   type: z.enum(["popup", "inline"]).default("popup"),
   templateId: z.string().optional(),
+  schema: campaignSchemaPayloadSchema.optional(),
 });
 
 /** POST /api/campaigns — Create a new campaign with a default Control variant */
@@ -36,7 +66,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Site not found", code: "NOT_FOUND" }, { status: 404 });
     }
 
-    // Resolve template schema if provided
+    // Resolve initial schema for control variant
     let schemaJson = JSON.stringify({
       fields: [
         { fieldId: "field_email_default", type: "email", label: "Email", placeholder: "you@example.com", required: true },
@@ -53,7 +83,9 @@ export async function POST(req: NextRequest) {
       submitLabel: "Submit",
     });
 
-    if (parsed.data.templateId) {
+    if (parsed.data.schema) {
+      schemaJson = JSON.stringify(parsed.data.schema);
+    } else if (parsed.data.templateId) {
       const { getTemplate } = await import("@/lib/templates");
       const template = getTemplate(parsed.data.templateId);
       if (template) {
