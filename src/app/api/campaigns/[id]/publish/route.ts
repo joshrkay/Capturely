@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageCampaigns } from "@/lib/rbac";
 import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
+import { validateFormSchemaJson } from "@capturely/shared-forms";
 
 /** POST /api/campaigns/:id/publish — Validate, build manifest, publish */
 export async function POST(
@@ -33,29 +34,32 @@ export async function POST(
       return NextResponse.json({ error: "Campaign has no variants", code: "VALIDATION_ERROR" }, { status: 400 });
     }
 
-    for (const variant of campaign.variants) {
-      try {
-        const schema = JSON.parse(variant.schemaJson);
-        if (!schema.fields || !Array.isArray(schema.fields) || schema.fields.length === 0) {
-          return NextResponse.json(
-            { error: `Variant "${variant.name}" has no fields`, code: "VALIDATION_ERROR" },
-            { status: 400 }
-          );
+    const variantErrors = campaign.variants
+      .map((variant) => {
+        const result = validateFormSchemaJson(variant.schemaJson);
+        if (result.valid) {
+          return null;
         }
-        // Must have an email field
-        const hasEmail = schema.fields.some((f: { type: string }) => f.type === "email");
-        if (!hasEmail) {
-          return NextResponse.json(
-            { error: `Variant "${variant.name}" must have an email field`, code: "VALIDATION_ERROR" },
-            { status: 400 }
-          );
-        }
-      } catch {
-        return NextResponse.json(
-          { error: `Variant "${variant.name}" has invalid schema JSON`, code: "VALIDATION_ERROR" },
-          { status: 400 }
-        );
-      }
+
+        return {
+          variantId: variant.id,
+          variantName: variant.name,
+          issues: result.errors,
+        };
+      })
+      .filter((variantError): variantError is { variantId: string; variantName: string; issues: Array<{ path: string; message: string }> } => variantError !== null);
+
+    if (variantErrors.length > 0) {
+      return NextResponse.json(
+        {
+          error: "One or more variants have invalid schema",
+          code: "SCHEMA_VALIDATION_ERROR",
+          details: {
+            variants: variantErrors,
+          },
+        },
+        { status: 400 }
+      );
     }
 
     // Update campaign status

@@ -733,17 +733,54 @@ export default function BuilderPage() {
     setSelectedFieldId(null);
   }, [schema, updateSchema]);
 
-  const handleSave = async () => {
-    if (!schema || !campaign) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!schema || !campaign) return false;
     setSaving(true);
     setMessage("");
 
+    const formatValidationMessage = (data: unknown, fallbackPrefix: string) => {
+      const parsed = (typeof data === "object" && data !== null) ? data as {
+        error?: string;
+        details?: {
+          variantName?: string;
+          variantId?: string;
+          issues?: Array<{ path?: string; message?: string }>;
+          variants?: Array<{
+            variantName?: string;
+            variantId?: string;
+            issues?: Array<{ path?: string; message?: string }>;
+          }>;
+        };
+      } : null;
+
+      const variantIssues = parsed?.details?.variants?.flatMap((variant) => {
+        const variantLabel = variant.variantName ?? variant.variantId ?? "Variant";
+        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`);
+      }) ?? [];
+      const directIssues = (parsed?.details?.issues ?? []).map((issue) => {
+        const variantLabel = parsed?.details?.variantName ?? parsed?.details?.variantId ?? "Variant";
+        return `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`;
+      });
+
+      const allIssues = [...variantIssues, ...directIssues];
+      if (allIssues.length > 0) {
+        return `${fallbackPrefix}: ${allIssues.join("; ")}`;
+      }
+
+      return `${fallbackPrefix}: ${parsed?.error ?? "Request failed"}`;
+    };
+
+    let schemaSaved = false;
+    let settingsSaved = true;
+    let settingsFailureMessage = "";
+
     // Save variant schema
-    await fetch(`/api/campaigns/${id}/variants`, {
+    const schemaRes = await fetch(`/api/campaigns/${id}/variants`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variantId: activeVariantId, schemaJson: JSON.stringify(schema) }),
     });
+    schemaSaved = schemaRes.ok;
 
     // Save campaign settings
     const updates: Record<string, unknown> = {};
@@ -752,20 +789,54 @@ export default function BuilderPage() {
     if (campaign.frequencyJson) updates.frequencyJson = campaign.frequencyJson;
 
     if (Object.keys(updates).length > 0) {
-      await fetch(`/api/campaigns/${id}`, {
+      const settingsRes = await fetch(`/api/campaigns/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      settingsSaved = settingsRes.ok;
+
+      if (!settingsRes.ok) {
+        const settingsData = await settingsRes.json().catch(() => null);
+        settingsFailureMessage = formatValidationMessage(settingsData, "Settings save failed");
+        if (schemaSaved) {
+          setMessage(settingsFailureMessage);
+        }
+      }
     }
 
-    setMessage("Draft saved");
+    if (schemaSaved && settingsSaved) {
+      setMessage("Draft saved");
+      setSaving(false);
+      setTimeout(() => setMessage(""), 2000);
+      return true;
+    }
+
+    if (!schemaSaved) {
+      const schemaData = await schemaRes.json().catch(() => null);
+      setMessage(formatValidationMessage(schemaData, "Schema save failed"));
+    }
+
+    if (schemaSaved && !settingsSaved) {
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
+
+    if (!schemaSaved && !settingsSaved) {
+      setMessage((prev) => `${prev} | ${settingsFailureMessage || "Settings save failed"}`);
+    }
+
     setSaving(false);
-    setTimeout(() => setMessage(""), 2000);
+    setTimeout(() => setMessage(""), 4000);
+    return false;
   };
 
   const handlePublish = async (): Promise<boolean> => {
-    await handleSave();
+    const saveOk = await handleSave();
+    if (!saveOk) {
+      return false;
+    }
     setPublishing(true);
     setMessage("");
 
