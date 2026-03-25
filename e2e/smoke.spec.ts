@@ -87,6 +87,17 @@ test.describe("Authenticated dashboard routes", () => {
     await page.goto("/app/integrations");
     await expect(page.getByText(/shopify/i)).toBeVisible();
   });
+
+  test("settings team invite CTA leads to invite page", async ({ page }) => {
+    const response = await page.goto("/app/settings?tab=team");
+    expect(response?.status()).not.toBe(404);
+
+    await page.getByRole("link", { name: /invite member/i }).click();
+    await expect(page).toHaveURL(/\/app\/settings\/team\/invite$/);
+    await expect(page.getByRole("heading", { name: /invite team member/i })).toBeVisible();
+    await expect(page).not.toHaveURL(/404/);
+  });
+
 });
 
 test.describe("Campaign builder (authenticated)", () => {
