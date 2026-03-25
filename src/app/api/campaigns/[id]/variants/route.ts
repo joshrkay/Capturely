@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageCampaigns } from "@/lib/rbac";
 import { resolvePlan } from "@/lib/plans";
+import { validateFormSchemaJson } from "@capturely/shared-forms";
 
 const createVariantSchema = z.object({
   name: z.string().min(1).max(100),
@@ -21,6 +22,22 @@ const updateVariantSchema = z.object({
 const deleteVariantSchema = z.object({
   variantId: z.string().cuid(),
 });
+
+
+function schemaValidationErrorResponse(issues: Array<{ path: string; message: string }>, variant?: { id?: string; name?: string }) {
+  return NextResponse.json(
+    {
+      error: "Invalid variant schema",
+      code: "SCHEMA_VALIDATION_ERROR",
+      details: {
+        variantId: variant?.id,
+        variantName: variant?.name,
+        issues,
+      },
+    },
+    { status: 400 }
+  );
+}
 
 /** POST /api/campaigns/:id/variants — Add a variant (A/B testing) */
 export async function POST(
@@ -58,6 +75,11 @@ export async function POST(
         { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
         { status: 400 }
       );
+    }
+
+    const schemaValidation = validateFormSchemaJson(parsed.data.schemaJson);
+    if (!schemaValidation.valid) {
+      return schemaValidationErrorResponse(schemaValidation.errors);
     }
 
     // Auto-balance traffic
@@ -136,6 +158,13 @@ export async function PATCH(
     }
 
     const { variantId, ...rest } = parsed.data;
+
+    if (rest.schemaJson !== undefined) {
+      const schemaValidation = validateFormSchemaJson(rest.schemaJson);
+      if (!schemaValidation.valid) {
+        return schemaValidationErrorResponse(schemaValidation.errors, { id: variantId });
+      }
+    }
 
     const variant = await prisma.variant.update({
       where: { id: variantId },
