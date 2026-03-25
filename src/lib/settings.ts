@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { MemberRole } from "@/generated/prisma/client";
+import {
+  getActiveSettingsTab as getCanonicalActiveSettingsTab,
+  getVisibleSettingsTabs as getCanonicalVisibleSettingsTabs,
+  type SettingsRole,
+  type SettingsTabDefinition,
+  type SettingsTabKey,
+} from "@/lib/settings-tabs-policy";
 
 export const notificationPreferencesSchema = z.object({
   productUpdates: z.boolean(),
@@ -65,4 +72,12 @@ export function parseNotificationPreferences(json: string | null | undefined): N
 
 export function canUpdateSettings(role: MemberRole): boolean {
   return role === MemberRole.owner || role === MemberRole.admin;
+}
+
+export function getVisibleSettingsTabs(role: SettingsRole): SettingsTabDefinition[] {
+  return getCanonicalVisibleSettingsTabs(role);
+}
+
+export function getActiveSettingsTab(tab: string | undefined, role: SettingsRole): SettingsTabKey {
+  return getCanonicalActiveSettingsTab(tab, role);
 }
