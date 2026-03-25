@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getExperimentResults } from "@/lib/growthbook";
 import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
+import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { sendExperimentCompletedEmail } from "@/lib/email";
 
 /** POST /api/growthbook/webhook — Receive experiment status updates */
@@ -113,22 +114,25 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send winner email to account owner(s)
+    // Send winner email to account owner (best-effort)
     try {
       const winnerVariant = await prisma.variant.findUnique({ where: { id: winner.key } });
-      const ownerEmail = await prisma.accountMember.findFirst({
-        where: { accountId: run.campaign.accountId, role: "owner" },
-        select: { userId: true },
-      });
-      // Clerk stores email outside Prisma; skip if no userId resolved.
-      // In production hook this up via Clerk backend API.
+      const ownerEmail = await getAccountOwnerEmail(run.campaign.accountId);
       if (winnerVariant && ownerEmail) {
         await sendExperimentCompletedEmail(
-          `noreply+${ownerEmail.userId}@capturely.io`, // placeholder — replace with Clerk email lookup
+          ownerEmail,
           run.campaign.name,
           winnerVariant.name,
           lift
         );
+      } else if (!winnerVariant) {
+        console.error("[growthbook webhook] experiment completed: winner variant missing", {
+          variantId: winner.key,
+        });
+      } else {
+        console.error("[growthbook webhook] experiment completed: no owner email for account", {
+          accountId: run.campaign.accountId,
+        });
       }
     } catch {
       // Non-fatal — email failure must not break promotion
