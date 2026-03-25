@@ -22,6 +22,13 @@ interface PublishPreflight {
   warnings?: PreflightIssue[];
 }
 
+interface PublishFailure {
+  variantId: string | null;
+  variantName: string | null;
+  rule: string;
+  message: string;
+}
+
 /** POST /api/campaigns/:id/publish — Validate, build manifest, publish */
 export async function POST(
   _req: Request,
@@ -128,11 +135,17 @@ export async function POST(
     };
 
     if (!preflight.passed) {
+      const failures: PublishFailure[] = preflightErrors.map((issue) => ({
+        variantId: issue.variantId ?? null,
+        variantName: issue.variantName ?? null,
+        rule: issue.code,
+        message: issue.path ? `${issue.message} (${issue.path})` : issue.message,
+      }));
+
       return NextResponse.json(
         {
-          error: "Preflight checks failed",
           code: "PUBLISH_PREFLIGHT_FAILED",
-          preflight,
+          failures,
         },
         { status: 400 }
       );
