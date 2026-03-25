@@ -196,4 +196,13 @@ describe("variant generation prompt", () => {
     expect(prompt).toContain('{"fields":[]}');
     expect(prompt).toContain("3.5");
   });
+
+  it("user prompt includes optimization goal block when provided", () => {
+    const prompt = buildVariantGenerationUserPrompt({
+      controlSchema: "{}",
+      conversionRate: 2,
+      optimizationGoalBlock: "Optimize for demo bookings",
+    });
+    expect(prompt).toContain("demo bookings");
+  });
 });

@@ -48,6 +48,18 @@ export async function sendAccountSuspendedEmail(email: string, accountName: stri
   });
 }
 
+export async function sendPaymentResumedEmail(email: string, accountName: string): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: "Payment successful — Capturely",
+    html: `
+      <h2>Payment received for ${accountName}</h2>
+      <p>Your payment has been processed. Full access has been restored.</p>
+      <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? ""}/app/billing">View billing</a></p>
+    `,
+  });
+}
+
 export async function sendUsageWarningEmail(
   email: string,
   accountName: string,

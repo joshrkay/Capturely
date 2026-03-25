@@ -2,10 +2,13 @@
 
 > Last updated: 2026-03-22
 
+**User stories (Epics 1–4 intent, cursorrule ACs):** [CAPTURELY-STORIES-E1-E4.md](./CAPTURELY-STORIES-E1-E4.md)
+
 ---
 
 ## Table of Contents
 
+- [User stories (Epics 1–4 intent)](./CAPTURELY-STORIES-E1-E4.md)
 - [Gate A: Foundation (COMPLETE)](#gate-a-foundation-complete)
 - [Widget & Runtime Foundation (Pre-Gate B)](#widget--runtime-foundation-pre-gate-b)
 - [API Reference](#api-reference)

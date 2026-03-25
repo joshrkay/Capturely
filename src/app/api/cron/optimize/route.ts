@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateChallengerVariants } from "@/lib/ai/claude";
 import { createExperiment } from "@/lib/growthbook";
-import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
+import { republishSiteManifest } from "@/lib/manifest-publish";
+import { goalMetricLabel } from "@/lib/optimization-goal";
 
 const MAX_CHALLENGERS = 3;
 const MAX_RUNS_PER_MONTH = 30;
@@ -146,6 +147,9 @@ export async function POST(req: NextRequest) {
         conversionRate,
         pastWinners: pastWinners || undefined,
         count: MAX_CHALLENGERS,
+        optimizationGoalKind: campaign.optimizationGoalKind,
+        optimizationGoalText: campaign.optimizationGoalText,
+        optimizationGoalFieldKey: campaign.optimizationGoalFieldKey,
       });
 
       // Parse the AI response
@@ -231,9 +235,14 @@ export async function POST(req: NextRequest) {
       });
 
       try {
+        const goalLabel = goalMetricLabel({
+          kind: campaign.optimizationGoalKind,
+          text: campaign.optimizationGoalText,
+          fieldKey: campaign.optimizationGoalFieldKey,
+        });
         const experiment = await createExperiment({
           trackingKey: `capturely_opt_${campaign.id}_${run.id}`,
-          name: `${campaign.name} — Auto-optimization`,
+          name: `${campaign.name} — ${goalLabel}`,
           variations: allVariants.map((v) => ({ name: v.name, key: v.id })),
           weights: allVariants.map((v) => v.trafficPercentage / 100),
         });
@@ -252,19 +261,13 @@ export async function POST(req: NextRequest) {
         data: { optimizationStatus: "experimenting", hasUnpublishedChanges: false },
       });
 
-      // Republish site manifest
-      const site = await prisma.site.findUnique({
-        where: { id: campaign.siteId },
-        include: {
-          campaigns: {
-            where: { status: "published" },
-            include: { variants: true },
-          },
-        },
-      });
-      if (site) {
-        const manifest = buildManifest(site);
-        await writeManifestToDisk(site.publicKey, manifest);
+      try {
+        const pub = await republishSiteManifest(campaign.siteId);
+        if (!pub.ok) {
+          console.error("[cron optimize] manifest republish returned not ok", { campaignId: campaign.id });
+        }
+      } catch (err) {
+        console.error("[cron optimize] manifest republish failed", err);
       }
 
       // Log AI usage

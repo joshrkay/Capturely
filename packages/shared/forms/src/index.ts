@@ -12,6 +12,7 @@ export type {
   DeviceTarget,
   TargetingConfig,
   ManifestCampaign,
+  ManifestCampaignExperiment,
   SiteManifestV1,
 } from "./types";
 

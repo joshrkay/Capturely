@@ -39,6 +39,11 @@ const createCampaignSchema = z.object({
   type: z.enum(["popup", "inline"]).default("popup"),
   templateId: z.string().optional(),
   schema: campaignSchemaPayloadSchema.optional(),
+  optimizationGoalText: z.string().max(2000).optional().nullable(),
+  optimizationGoalKind: z
+    .enum(["maximize_submissions", "maximize_qualified_leads", "maximize_field_completion"])
+    .optional(),
+  optimizationGoalFieldKey: z.string().max(200).optional().nullable(),
 });
 
 /** POST /api/campaigns — Create a new campaign with a default Control variant */
@@ -101,6 +106,15 @@ export async function POST(req: NextRequest) {
           siteId: parsed.data.siteId,
           name: parsed.data.name,
           type: parsed.data.type as "popup" | "inline",
+          ...(parsed.data.optimizationGoalText !== undefined
+            ? { optimizationGoalText: parsed.data.optimizationGoalText }
+            : {}),
+          ...(parsed.data.optimizationGoalKind !== undefined
+            ? { optimizationGoalKind: parsed.data.optimizationGoalKind }
+            : {}),
+          ...(parsed.data.optimizationGoalFieldKey !== undefined
+            ? { optimizationGoalFieldKey: parsed.data.optimizationGoalFieldKey }
+            : {}),
         },
       });
 

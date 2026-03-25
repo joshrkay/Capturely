@@ -37,14 +37,28 @@ function extractSchemaFromAiResponse(schemaText: string): FormSchema {
   return JSON.parse(jsonStr) as FormSchema;
 }
 
+type OptimizationGoalKind = "maximize_submissions" | "maximize_qualified_leads" | "maximize_field_completion";
+
 function AiChatPanel({
   standalone,
   campaignType,
   onApplySchema,
+  optimizationGoalText,
+  onOptimizationGoalTextChange,
+  optimizationGoalKind,
+  onOptimizationGoalKindChange,
+  optimizationGoalFieldKey,
+  onOptimizationGoalFieldKeyChange,
 }: {
   standalone?: boolean;
   campaignType: "popup" | "inline";
   onApplySchema: (schema: FormSchema) => void;
+  optimizationGoalText: string;
+  onOptimizationGoalTextChange: (value: string) => void;
+  optimizationGoalKind: OptimizationGoalKind;
+  onOptimizationGoalKindChange: (value: OptimizationGoalKind) => void;
+  optimizationGoalFieldKey: string;
+  onOptimizationGoalFieldKeyChange: (value: string) => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,7 +74,19 @@ function AiChatPanel({
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, campaignType }),
+        body: JSON.stringify({
+          prompt,
+          campaignType,
+          ...(optimizationGoalText.trim()
+            ? {
+                optimizationGoalText: optimizationGoalText.trim(),
+                optimizationGoalKind,
+                ...(optimizationGoalKind === "maximize_field_completion" && optimizationGoalFieldKey.trim()
+                  ? { optimizationGoalFieldKey: optimizationGoalFieldKey.trim() }
+                  : {}),
+              }
+            : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -94,6 +120,38 @@ function AiChatPanel({
           ? "Generate a schema, then create your campaign directly with that AI output."
           : "Describe your campaign and AI will generate the schema for you."}
       </p>
+
+      <div className="mt-4 space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/30">
+        <div className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Optimization goal (optional)</div>
+        <p className="text-[11px] text-indigo-800/90 dark:text-indigo-300/90">
+          State the business outcome you want (e.g. more qualified leads, higher demo bookings). This steers the control form and future auto-optimization.
+        </p>
+        <select
+          value={optimizationGoalKind}
+          onChange={(e) => onOptimizationGoalKindChange(e.target.value as OptimizationGoalKind)}
+          className="w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs dark:border-indigo-800 dark:bg-zinc-900 dark:text-zinc-100"
+        >
+          <option value="maximize_submissions">Maximize submissions</option>
+          <option value="maximize_qualified_leads">Maximize qualified leads (richer contact info)</option>
+          <option value="maximize_field_completion">Maximize completion of a specific field</option>
+        </select>
+        <textarea
+          value={optimizationGoalText}
+          onChange={(e) => onOptimizationGoalTextChange(e.target.value)}
+          placeholder="e.g. Capture company + role so our sales team can qualify Shopify Plus merchants."
+          rows={2}
+          className="w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs dark:border-indigo-800 dark:bg-zinc-900 dark:text-zinc-100"
+        />
+        {optimizationGoalKind === "maximize_field_completion" && (
+          <input
+            type="text"
+            value={optimizationGoalFieldKey}
+            onChange={(e) => onOptimizationGoalFieldKeyChange(e.target.value)}
+            placeholder="fieldId to optimize (e.g. field_company_abc123)"
+            className="w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-xs dark:border-indigo-800 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+        )}
+      </div>
 
       {error && (
         <div className="mt-3 rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{error}</div>
@@ -140,6 +198,9 @@ export default function NewCampaignPage() {
   const [creationMode, setCreationMode] = useState<CreationMode>("manual");
   const [templateId, setTemplateId] = useState<string | undefined>();
   const [aiSchema, setAiSchema] = useState<FormSchema | null>(null);
+  const [optimizationGoalText, setOptimizationGoalText] = useState("");
+  const [optimizationGoalKind, setOptimizationGoalKind] = useState<OptimizationGoalKind>("maximize_submissions");
+  const [optimizationGoalFieldKey, setOptimizationGoalFieldKey] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryChip>("All");
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -155,10 +216,25 @@ export default function NewCampaignPage() {
   }, []);
 
   const createCampaignRecord = async () => {
+    const payload: Record<string, unknown> = {
+      name,
+      siteId,
+      type,
+      templateId: creationMode === "template" ? templateId : undefined,
+    };
+    if (creationMode === "ai") {
+      if (optimizationGoalText.trim()) {
+        payload.optimizationGoalText = optimizationGoalText.trim();
+      }
+      payload.optimizationGoalKind = optimizationGoalKind;
+      if (optimizationGoalKind === "maximize_field_completion" && optimizationGoalFieldKey.trim()) {
+        payload.optimizationGoalFieldKey = optimizationGoalFieldKey.trim();
+      }
+    }
     return fetch("/api/campaigns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, siteId, type, templateId: creationMode === "template" ? templateId : undefined }),
+      body: JSON.stringify(payload),
     });
   };
 
@@ -387,7 +463,17 @@ export default function NewCampaignPage() {
         )}
 
         {creationMode === "ai" && (
-          <AiChatPanel standalone campaignType={type} onApplySchema={setAiSchema} />
+          <AiChatPanel
+            standalone
+            campaignType={type}
+            onApplySchema={setAiSchema}
+            optimizationGoalText={optimizationGoalText}
+            onOptimizationGoalTextChange={setOptimizationGoalText}
+            optimizationGoalKind={optimizationGoalKind}
+            onOptimizationGoalKindChange={setOptimizationGoalKind}
+            optimizationGoalFieldKey={optimizationGoalFieldKey}
+            onOptimizationGoalFieldKeyChange={setOptimizationGoalFieldKey}
+          />
         )}
 
         <button

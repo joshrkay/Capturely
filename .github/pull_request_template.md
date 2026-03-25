@@ -3,6 +3,8 @@
 - <!-- What does this PR do? -->
 - <!-- Why is it needed? -->
 
+**Engineering rules:** [`cursorrule`](../cursorrule) — §9 matches this checklist; linked issues should satisfy **§10.1** acceptance criteria.
+
 ## Type of change
 
 - [ ] Bug fix

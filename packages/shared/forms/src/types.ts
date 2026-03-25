@@ -129,6 +129,15 @@ export interface TargetingConfig {
   };
 }
 
+/**
+ * A/B assignment metadata — matches server GrowthBook `trackingKey` + traffic weights when an optimization run is active,
+ * or a stable per-campaign key when multiple variants are published with split traffic.
+ */
+export interface ManifestCampaignExperiment {
+  trackingKey: string;
+  variantWeights: Record<string, number>;
+}
+
 /** A single campaign in the manifest */
 export interface ManifestCampaign {
   campaignId: string;
@@ -138,6 +147,8 @@ export interface ManifestCampaign {
   frequency?: FrequencyConfig;
   /** Map of variant ID -> form schema */
   variants: Record<string, FormSchema>;
+  /** Present when more than one variant has positive traffic split — sticky weighted assignment + analytics */
+  experiment?: ManifestCampaignExperiment;
 }
 
 /** Top-level site manifest (v1) */
