@@ -1,13 +1,19 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { withAccountContext } from "@/lib/account";
+import { UnpublishedChangesBadge } from "./components/unpublished-changes-badge";
 
 export default async function CampaignsPage() {
   const ctx = await withAccountContext();
 
   const campaigns = await prisma.campaign.findMany({
     where: { accountId: ctx.accountId },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      type: true,
+      status: true,
+      hasUnpublishedChanges: true,
       site: { select: { name: true } },
       variants: { select: { id: true, name: true, isControl: true } },
       _count: { select: { submissions: true } },
@@ -65,9 +71,12 @@ export default async function CampaignsPage() {
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{campaign.site.name}</td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 capitalize">{campaign.type}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[campaign.status] ?? ""}`}>
-                      {campaign.status}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[campaign.status] ?? ""}`}>
+                        {campaign.status}
+                      </span>
+                      {campaign.hasUnpublishedChanges && <UnpublishedChangesBadge />}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{campaign.variants.length}</td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{campaign._count.submissions}</td>

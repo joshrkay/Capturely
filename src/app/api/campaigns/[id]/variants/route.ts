@@ -12,11 +12,25 @@ const createVariantSchema = z.object({
 });
 
 const updateVariantSchema = z.object({
-  variantId: z.string().cuid(),
+  variantId: z.string().cuid().optional(),
   name: z.string().min(1).max(100).optional(),
   schemaJson: z.string().min(2).optional(),
   trafficPercentage: z.number().int().min(0).max(100).optional(),
   isControl: z.boolean().optional(),
+  trafficUpdates: z.array(
+    z.object({
+      variantId: z.string().cuid(),
+      trafficPercentage: z.number().int().min(0).max(100),
+    })
+  ).optional(),
+}).superRefine((data, ctx) => {
+  if (!data.variantId && (!data.trafficUpdates || data.trafficUpdates.length === 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["variantId"],
+      message: "variantId is required when trafficUpdates is not provided",
+    });
+  }
 });
 
 const deleteVariantSchema = z.object({
@@ -33,6 +47,25 @@ function schemaValidationErrorResponse(issues: Array<{ path: string; message: st
         variantId: variant?.id,
         variantName: variant?.name,
         issues,
+      },
+    },
+    { status: 400 }
+  );
+}
+
+function allocationValidationErrorResponse(
+  totalTraffic: number,
+  variants: Array<{ id: string; name: string; trafficPercentage: number }>
+) {
+  return NextResponse.json(
+    {
+      error: "Traffic allocations must total 100",
+      code: "VALIDATION_ERROR",
+      details: {
+        constraint: "TOTAL_TRAFFIC_ALLOCATION",
+        expectedTotal: 100,
+        actualTotal: totalTraffic,
+        variants,
       },
     },
     { status: 400 }
@@ -157,32 +190,159 @@ export async function PATCH(
       );
     }
 
-    const { variantId, ...rest } = parsed.data;
+    const { variantId, trafficUpdates, ...rest } = parsed.data;
 
-    if (rest.schemaJson !== undefined) {
+    if (rest.schemaJson !== undefined && variantId) {
       const schemaValidation = validateFormSchemaJson(rest.schemaJson);
       if (!schemaValidation.valid) {
         return schemaValidationErrorResponse(schemaValidation.errors, { id: variantId });
       }
     }
 
-    const variant = await prisma.variant.update({
-      where: { id: variantId },
-      data: {
-        ...(rest.name !== undefined && { name: rest.name }),
-        ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
-        ...(rest.trafficPercentage !== undefined && { trafficPercentage: rest.trafficPercentage }),
-        ...(rest.isControl !== undefined && { isControl: rest.isControl }),
-        schemaVersion: { increment: 1 },
-      },
+    const result = await prisma.$transaction(async (tx) => {
+      const campaignVariants = await tx.variant.findMany({
+        where: { campaignId: id },
+        select: { id: true, name: true, trafficPercentage: true, schemaVersion: true, isControl: true },
+      });
+
+      const targetVariantId = variantId ?? trafficUpdates?.[0]?.variantId;
+      if (!targetVariantId) {
+        return { error: NextResponse.json({ error: "Variant not found", code: "NOT_FOUND" }, { status: 404 }) };
+      }
+
+      const existingTarget = campaignVariants.find((v) => v.id === targetVariantId);
+      if (!existingTarget) {
+        return { error: NextResponse.json({ error: "Variant not found", code: "NOT_FOUND" }, { status: 404 }) };
+      }
+
+      const updatesById = new Map<string, number>();
+      if (trafficUpdates && trafficUpdates.length > 0) {
+        for (const update of trafficUpdates) {
+          updatesById.set(update.variantId, update.trafficPercentage);
+        }
+      } else if (rest.trafficPercentage !== undefined && variantId) {
+        updatesById.set(variantId, rest.trafficPercentage);
+      }
+
+      if (updatesById.size > 0) {
+        const invalidTarget = [...updatesById.keys()].find(
+          (variantUpdateId) => !campaignVariants.some((v) => v.id === variantUpdateId)
+        );
+        if (invalidTarget) {
+          return { error: NextResponse.json({ error: "Variant not found", code: "NOT_FOUND" }, { status: 404 }) };
+        }
+
+        const computedVariants = campaignVariants.map((variant) => ({
+          id: variant.id,
+          name: variant.name,
+          trafficPercentage: updatesById.get(variant.id) ?? variant.trafficPercentage,
+        }));
+        const totalTraffic = computedVariants.reduce((sum, variant) => sum + variant.trafficPercentage, 0);
+        if (totalTraffic !== 100) {
+          return { error: allocationValidationErrorResponse(totalTraffic, computedVariants) };
+        }
+      }
+
+      const preWriteCheckVariants = await tx.variant.findMany({
+        where: { campaignId: id },
+        select: { id: true, schemaVersion: true },
+      });
+      const hasConcurrentChanges = campaignVariants.some((variant) => {
+        const latest = preWriteCheckVariants.find((v) => v.id === variant.id);
+        return !latest || latest.schemaVersion !== variant.schemaVersion;
+      });
+      if (hasConcurrentChanges) {
+        return {
+          error: NextResponse.json(
+            {
+              error: "Variants changed concurrently; please retry.",
+              code: "VALIDATION_ERROR",
+              details: { constraint: "CONCURRENT_WRITE_CONFLICT" },
+            },
+            { status: 409 }
+          ),
+        };
+      }
+
+      const hasDirectVariantFieldUpdate = Boolean(
+        variantId &&
+        (rest.name !== undefined || rest.schemaJson !== undefined || rest.isControl !== undefined)
+      );
+
+      let updatedVariant: Awaited<ReturnType<typeof tx.variant.findUnique>> = null;
+      if (variantId && hasDirectVariantFieldUpdate) {
+        const updateResult = await tx.variant.updateMany({
+          where: { id: variantId, campaignId: id, schemaVersion: existingTarget.schemaVersion },
+          data: {
+            ...(rest.name !== undefined && { name: rest.name }),
+            ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
+            ...(rest.isControl !== undefined && { isControl: rest.isControl }),
+            schemaVersion: { increment: 1 },
+          },
+        });
+        if (updateResult.count === 0) {
+          return {
+            error: NextResponse.json(
+              {
+                error: "Variants changed concurrently; please retry.",
+                code: "VALIDATION_ERROR",
+                details: { constraint: "CONCURRENT_WRITE_CONFLICT", variantId },
+              },
+              { status: 409 }
+            ),
+          };
+        }
+        updatedVariant = await tx.variant.findUnique({ where: { id: variantId } });
+      }
+
+      if (updatesById.size > 0) {
+        const effectiveSchemaVersions = new Map(campaignVariants.map((variant) => [variant.id, variant.schemaVersion]));
+        if (variantId && hasDirectVariantFieldUpdate) {
+          effectiveSchemaVersions.set(variantId, existingTarget.schemaVersion + 1);
+        }
+
+        for (const variant of campaignVariants) {
+          if (!updatesById.has(variant.id)) continue;
+          const updateResult = await tx.variant.updateMany({
+            where: { id: variant.id, campaignId: id, schemaVersion: effectiveSchemaVersions.get(variant.id) },
+            data: {
+              trafficPercentage: updatesById.get(variant.id)!,
+              schemaVersion: { increment: 1 },
+            },
+          });
+          if (updateResult.count === 0) {
+            return {
+              error: NextResponse.json(
+                {
+                  error: "Variants changed concurrently; please retry.",
+                  code: "VALIDATION_ERROR",
+                  details: { constraint: "CONCURRENT_WRITE_CONFLICT", variantId: variant.id },
+                },
+                { status: 409 }
+              ),
+            };
+          }
+        }
+      }
+
+      await tx.campaign.update({
+        where: { id },
+        data: { hasUnpublishedChanges: true },
+      });
+
+      const allVariants = await tx.variant.findMany({
+        where: { campaignId: id },
+        select: { id: true, name: true, trafficPercentage: true, isControl: true },
+      });
+
+      return { variant: updatedVariant, allVariants };
     });
 
-    await prisma.campaign.update({
-      where: { id },
-      data: { hasUnpublishedChanges: true },
-    });
+    if ("error" in result) {
+      return result.error;
+    }
 
-    return NextResponse.json({ variant });
+    return NextResponse.json(result);
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
