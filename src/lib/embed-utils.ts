@@ -1,7 +1,10 @@
-const WIDGET_SRC = "https://cdn.capturely.io/widget.js";
+function getWidgetSrc(): string {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  return `${baseUrl}/widget.js`;
+}
 
 export function generateGenericSnippet(publicKey: string): string {
-  return `<script src="${WIDGET_SRC}" data-pk="${publicKey}"></script>`;
+  return `<script src="${getWidgetSrc()}" data-public-key="${publicKey}"></script>`;
 }
 
 export function generateShopifySnippet(publicKey: string): string {

@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "dev:widget": "node packages/widget/build.mjs --watch",
+    "build:widget": "node packages/widget/build.mjs",
+    "build": "npm run build:widget && next build",
     "start": "next start",
     "lint": "eslint",
     "db:up": "docker compose up -d",
@@ -44,18 +46,19 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/stripe": "^8.0.416",
+    "esbuild": "^0.27.4",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.18",
-    "@playwright/test": "^1.50.0"
+    "vitest": "^4.0.18"
   }
 }

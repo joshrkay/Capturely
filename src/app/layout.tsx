@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Capturely",
-  description: "Multi-tenant form builder SaaS",
+  title: "Capturely — AI-Powered Forms That Optimize Themselves",
+  description:
+    "Build high-converting forms with AI. Capturely auto-generates variants, runs A/B tests, and promotes winners to maximize your conversion rate.",
 };
 
 export default function RootLayout({
