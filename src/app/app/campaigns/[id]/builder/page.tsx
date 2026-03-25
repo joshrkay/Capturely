@@ -14,6 +14,7 @@ import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { SpamSettings } from "./components/spam-settings";
+import { UnpublishedChangesBadge } from "../../components/unpublished-changes-badge";
 import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
@@ -881,7 +882,7 @@ export default function BuilderPage() {
             {campaign.status}
           </span>
           {campaign.hasUnpublishedChanges && (
-            <span className="text-xs text-amber-600">unsaved changes</span>
+            <UnpublishedChangesBadge />
           )}
         </div>
         <div className="flex items-center gap-2">
