@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   defaultNotificationPreferences,
   type NotificationPreferences,
-} from "@/lib/settings";
+} from "@/lib/settings-shared";
 import {
   fetchNotificationPreferences,
   saveNotificationPreferences,

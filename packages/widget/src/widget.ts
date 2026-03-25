@@ -5,7 +5,7 @@
  *
  * Flow:
  * 1. Read data-public-key from the script tag
- * 2. Fetch manifest from /manifests/{publicKey}.json
+ * 2. Fetch manifest from /api/manifests/{publicKey}
  * 3. For each campaign: evaluate URL targeting, set up trigger
  * 4. When trigger fires: check frequency, render popup or inline form
  * 5. On submit: request token, POST submission
@@ -54,7 +54,7 @@ function generateSubmissionId(): string {
 
 async function fetchManifest(baseUrl: string, publicKey: string): Promise<SiteManifestV1 | null> {
   try {
-    const res = await fetch(`${baseUrl}/manifests/${publicKey}.json`);
+    const res = await fetch(`${baseUrl}/api/manifests/${publicKey}`);
     if (!res.ok) return null;
     return (await res.json()) as SiteManifestV1;
   } catch {

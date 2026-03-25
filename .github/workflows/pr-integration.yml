@@ -46,6 +46,9 @@ jobs:
       - name: Ensure no uncommitted Prisma changes
         run: git diff --exit-code prisma || (echo "Uncommitted Prisma changes found. Run migrate locally and commit results." && exit 1)
 
+      - name: Build widget
+        run: npm run build:widget
+
       - name: Typecheck
         run: npm run typecheck
 

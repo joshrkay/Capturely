@@ -1,4 +1,10 @@
-import { z } from "zod";
+/**
+ * Server-side settings utilities.
+ *
+ * Re-exports client-safe helpers from settings-shared.ts and adds
+ * server-only helpers that depend on Prisma.
+ */
+
 import { MemberRole } from "@/generated/prisma/client";
 import {
   getActiveSettingsTab as getCanonicalActiveSettingsTab,
@@ -8,73 +14,19 @@ import {
   type SettingsTabKey,
 } from "@/lib/settings-tabs-policy";
 
-export const notificationPreferencesSchema = z.object({
-  productUpdates: z.boolean(),
-  weeklyDigest: z.boolean(),
-  billingAlerts: z.boolean(),
-  securityAlerts: z.boolean(),
-});
-
-export type NotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
-
-export const defaultNotificationPreferences: NotificationPreferences = {
-  productUpdates: true,
-  weeklyDigest: false,
-  billingAlerts: true,
-  securityAlerts: true,
-};
-
-export const updateSettingsSchema = z
-  .object({
-    displayName: z.string().trim().min(1).max(100).optional(),
-    notificationPreferences: notificationPreferencesSchema.partial().optional(),
-  })
-  .strict()
-  .refine((data) => data.displayName !== undefined || data.notificationPreferences !== undefined, {
-    message: "At least one setting must be provided",
-  });
-
-export type UpdateSettingsInput = z.input<typeof updateSettingsSchema>;
-
-export function buildSettingsPatchPayload(input: UpdateSettingsInput): UpdateSettingsInput {
-  return input;
-}
-
-export const deleteAccountSchema = z
-  .object({
-    confirmation: z.literal("DELETE"),
-  })
-  .strict();
-
-export function serializeNotificationPreferences(
-  notificationPreferences?: Partial<NotificationPreferences>
-): string {
-  return JSON.stringify({
-    ...defaultNotificationPreferences,
-    ...(notificationPreferences ?? {}),
-  });
-}
-
-export function parseNotificationPreferences(json: string | null | undefined): NotificationPreferences {
-  if (!json) {
-    return { ...defaultNotificationPreferences };
-  }
-
-  try {
-    const parsed = JSON.parse(json) as unknown;
-    const result = notificationPreferencesSchema.partial().safeParse(parsed);
-    if (!result.success) {
-      return { ...defaultNotificationPreferences };
-    }
-
-    return {
-      ...defaultNotificationPreferences,
-      ...result.data,
-    };
-  } catch {
-    return { ...defaultNotificationPreferences };
-  }
-}
+// Re-export everything from the client-safe module so existing server-side
+// imports from "@/lib/settings" continue to work without changes.
+export {
+  notificationPreferencesSchema,
+  type NotificationPreferences,
+  defaultNotificationPreferences,
+  updateSettingsSchema,
+  type UpdateSettingsInput,
+  buildSettingsPatchPayload,
+  deleteAccountSchema,
+  serializeNotificationPreferences,
+  parseNotificationPreferences,
+} from "@/lib/settings-shared";
 
 export function canUpdateSettings(role: MemberRole): boolean {
   return role === MemberRole.owner || role === MemberRole.admin;
