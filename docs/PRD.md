@@ -60,7 +60,7 @@ Capturely is an **AI-powered, self-optimizing form builder** for e-commerce and 
 | Ensure Account on First Login | ensureAccountForUser() idempotent, creates Account+owner membership |
 | Account Context Resolver | withAccountContext() helper — resolves accountId+role, 403 on no membership |
 | RBAC Helpers | canManageTeam/Sites/Campaigns/Billing/View() — centralized, unit tested |
-| Team Page — List Members | /app/settings/team, GET /api/team/members, all roles can view |
+| Settings Team Tab — List Members | /app/settings?tab=team, GET /api/team/members, all roles can view |
 | Invites Data Model | Invite model: account_id, email, role, token (crypto), status, expires_at |
 | Invite API — Create/List/Revoke | POST/GET /api/invites, /revoke, RBAC owner/admin only |
 | Invite Acceptance Flow | /accept-invite?token=..., validate + create membership, idempotent |

@@ -34,6 +34,12 @@ export const updateSettingsSchema = z
     message: "At least one setting must be provided",
   });
 
+export type UpdateSettingsInput = z.input<typeof updateSettingsSchema>;
+
+export function buildSettingsPatchPayload(input: UpdateSettingsInput): UpdateSettingsInput {
+  return input;
+}
+
 export const deleteAccountSchema = z
   .object({
     confirmation: z.literal("DELETE"),

@@ -1,24 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { deleteAccountSchema, updateSettingsSchema } from "../schemas";
+import {
+  buildSettingsPatchPayload,
+  deleteAccountSchema,
+  updateSettingsSchema,
+} from "@/lib/settings";
 
 describe("updateSettingsSchema", () => {
-  it("accepts team-manageable fields", () => {
+  it("accepts canonical account and notification fields", () => {
     const parsed = updateSettingsSchema.safeParse({
-      name: "Acme",
-      timezone: "America/Los_Angeles",
-      language: "en-US",
+      displayName: "Acme",
+      notificationPreferences: {
+        weeklyDigest: true,
+      },
     });
 
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts notification preference updates", () => {
-    const parsed = updateSettingsSchema.safeParse({
-      notifications: {
-        email: true,
-        push: false,
-      },
-    });
+  it("accepts payload built by the UI helper", () => {
+    const parsed = updateSettingsSchema.safeParse(
+      buildSettingsPatchPayload({
+        notificationPreferences: {
+          productUpdates: false,
+          weeklyDigest: true,
+          billingAlerts: true,
+          securityAlerts: true,
+        },
+      })
+    );
 
     expect(parsed.success).toBe(true);
   });
@@ -29,10 +38,11 @@ describe("updateSettingsSchema", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("rejects unknown notification keys", () => {
+  it("rejects legacy keys that diverge from canonical contract", () => {
     const parsed = updateSettingsSchema.safeParse({
+      name: "Legacy",
       notifications: {
-        sms: true,
+        email: true,
       },
     });
 
