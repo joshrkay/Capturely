@@ -9,6 +9,8 @@ describe("updateSettingsSchema", () => {
   it("accepts canonical account and notification fields", () => {
     const parsed = updateSettingsSchema.safeParse({
       displayName: "Acme",
+      company: "Acme Ltd",
+      timezone: "America/Los_Angeles",
       notificationPreferences: {
         weeklyDigest: true,
       },

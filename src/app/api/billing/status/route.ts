@@ -4,7 +4,14 @@ import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canView } from "@/lib/rbac";
 import { resolvePlan } from "@/lib/plans";
 
-/** GET /api/billing/status — Account billing status, plan, and usage */
+/**
+ * GET /api/billing/status — Account billing status, plan, and usage.
+ *
+ * Plan tier, payment status, Stripe customer/subscription IDs, and billing cycle
+ * dates are a read model: they are updated from Stripe via POST /api/stripe/webhook
+ * (checkout, subscription, and invoice events). This handler does not call the Stripe
+ * API and does not persist card numbers.
+ */
 export async function GET() {
   try {
     const ctx = await withAccountContext();

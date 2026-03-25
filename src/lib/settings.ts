@@ -1,18 +1,17 @@
 import { z } from "zod";
 import { MemberRole } from "@/generated/prisma/client";
 
-function createIanaTimeZoneSet(): Set<string> {
-  try {
-    return new Set(Intl.supportedValuesOf("timeZone"));
-  } catch {
-    return new Set();
-  }
-}
-
-const IANA_TIME_ZONES = createIanaTimeZoneSet();
-
+/** True if `tz` is a non-empty identifier accepted by the runtime as an IANA time zone. */
 export function isValidIanaTimeZone(tz: string): boolean {
-  return IANA_TIME_ZONES.has(tz);
+  if (tz === "") {
+    return false;
+  }
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 import {
   getActiveSettingsTab as getCanonicalActiveSettingsTab,
