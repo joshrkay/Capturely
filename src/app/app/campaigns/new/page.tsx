@@ -18,6 +18,10 @@ interface Site {
   primaryDomain: string;
 }
 
+type SitesApiResponse = {
+  sites?: Site[];
+};
+
 interface FormSchema {
   fields: Array<Record<string, unknown>>;
   style: Record<string, unknown>;
@@ -27,6 +31,27 @@ interface FormSchema {
 }
 
 type CreationMode = "manual" | "template" | "ai";
+const NEW_CAMPAIGN_DRAFT_STORAGE_KEY = "capturely:new-campaign-draft";
+type NewCampaignDraft = {
+  name?: string;
+  type?: "popup" | "inline";
+  creationMode?: CreationMode;
+  templateId?: string;
+  aiSchema?: FormSchema | null;
+};
+
+function getStoredDraft(): NewCampaignDraft {
+  if (typeof window === "undefined") return {};
+  const raw = window.localStorage.getItem(NEW_CAMPAIGN_DRAFT_STORAGE_KEY);
+  if (!raw) return {};
+
+  try {
+    return JSON.parse(raw) as NewCampaignDraft;
+  } catch {
+    window.localStorage.removeItem(NEW_CAMPAIGN_DRAFT_STORAGE_KEY);
+    return {};
+  }
+}
 
 function extractSchemaFromAiResponse(schemaText: string): FormSchema {
   let jsonStr = schemaText;
@@ -35,6 +60,19 @@ function extractSchemaFromAiResponse(schemaText: string): FormSchema {
     jsonStr = jsonMatch[1];
   }
   return JSON.parse(jsonStr) as FormSchema;
+}
+
+export function parseSitesApiResponse(data: unknown): SitesApiResponse {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Invalid sites payload");
+  }
+
+  const payload = data as { sites?: unknown };
+  if (payload.sites !== undefined && !Array.isArray(payload.sites)) {
+    throw new Error("Invalid sites payload");
+  }
+
+  return { sites: payload.sites as Site[] | undefined };
 }
 
 function AiChatPanel({
@@ -132,34 +170,85 @@ function AiChatPanel({
 }
 
 export default function NewCampaignPage() {
+  const storedDraft = getStoredDraft();
   const router = useRouter();
   const [sites, setSites] = useState<Site[]>([]);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(storedDraft.name ?? "");
   const [siteId, setSiteId] = useState("");
-  const [type, setType] = useState<"popup" | "inline">("popup");
-  const [creationMode, setCreationMode] = useState<CreationMode>("manual");
-  const [templateId, setTemplateId] = useState<string | undefined>();
-  const [aiSchema, setAiSchema] = useState<FormSchema | null>(null);
+  const [type, setType] = useState<"popup" | "inline">(storedDraft.type === "inline" ? "inline" : "popup");
+  const [creationMode, setCreationMode] = useState<CreationMode>(
+    storedDraft.creationMode === "template" || storedDraft.creationMode === "ai" ? storedDraft.creationMode : "manual"
+  );
+  const [templateId, setTemplateId] = useState<string | undefined>(storedDraft.templateId);
+  const [aiSchema, setAiSchema] = useState<FormSchema | null>(storedDraft.aiSchema ?? null);
   const [activeCategory, setActiveCategory] = useState<CategoryChip>("All");
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [createdCampaignId, setCreatedCampaignId] = useState<string | null>(null);
+  const [createdControlVariantId, setCreatedControlVariantId] = useState<string | null>(null);
+  const [templateCreateKey, setTemplateCreateKey] = useState<string>(() => crypto.randomUUID());
+
+  const resetCreateAttempt = () => {
+    setTemplateCreateKey(crypto.randomUUID());
+    setCreatedCampaignId(null);
+    setCreatedControlVariantId(null);
+  };
 
   useEffect(() => {
     fetch("/api/sites")
-      .then((r) => r.json())
-      .then((data) => {
-        setSites(data);
-        if (data.length > 0) setSiteId(data[0].id);
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error("Failed to load sites.");
+        }
+        return r.json();
+      })
+      .then((rawData) => {
+        const data = parseSitesApiResponse(rawData);
+        setSites(data.sites ?? []);
+        if ((data.sites ?? []).length > 0) setSiteId((data.sites ?? [])[0].id);
+      })
+      .catch(() => {
+        setSites([]);
+        setError("Failed to load sites. Please refresh and try again.");
       });
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      NEW_CAMPAIGN_DRAFT_STORAGE_KEY,
+      JSON.stringify({ name, type, creationMode, templateId, aiSchema })
+    );
+  }, [name, type, creationMode, templateId, aiSchema]);
 
   const createCampaignRecord = async () => {
     return fetch("/api/campaigns", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(creationMode !== "manual" ? { "Idempotency-Key": templateCreateKey } : {}),
+      },
       body: JSON.stringify({ name, siteId, type, templateId: creationMode === "template" ? templateId : undefined }),
     });
+  };
+
+  const applyAiSchemaToCampaign = async (campaignId: string, controlVariantId: string) => {
+    const patchRes = await fetch(`/api/campaigns/${campaignId}/variants`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        variantId: controlVariantId,
+        schemaJson: JSON.stringify(aiSchema),
+      }),
+    });
+
+    if (!patchRes.ok) {
+      const data = await patchRes.json();
+      setError(data.error ?? "Campaign created, but failed to apply AI schema.");
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -168,53 +257,68 @@ export default function NewCampaignPage() {
     setError("");
 
     if (creationMode === "template" && templateId) {
-      const result = await createCampaignFromTemplate(siteId, templateId);
+      const result = await createCampaignFromTemplate(siteId, templateId, fetch, { idempotencyKey: templateCreateKey });
       if (!result.ok) {
         setError(result.error);
         setLoading(false);
         return;
       }
 
+      localStorage.removeItem(NEW_CAMPAIGN_DRAFT_STORAGE_KEY);
+      setTemplateCreateKey(crypto.randomUUID());
       router.push(getBuilderPath(result.campaignId));
       return;
     }
 
-    const res = await createCampaignRecord();
+    const res = createdCampaignId && creationMode === "ai" ? null : await createCampaignRecord();
 
-    if (!res.ok) {
+    if (res && !res.ok) {
       const data = await res.json();
       setError(data.error ?? "Failed to create campaign");
       setLoading(false);
       return;
     }
 
-    const campaign = await res.json();
+    const campaign =
+      createdCampaignId && creationMode === "ai"
+        ? { id: createdCampaignId, variants: [{ id: createdControlVariantId, isControl: true }] }
+        : await res?.json();
+
+    if (!campaign) {
+      setError("Failed to resolve campaign after create.");
+      setLoading(false);
+      return;
+    }
 
     if (creationMode === "ai" && aiSchema) {
-      const controlVariant = campaign.variants?.find((variant: { isControl: boolean; id: string }) => variant.isControl);
+      const controlVariant = campaign.variants?.find((variant: { isControl: boolean; id: string | null }) => variant.isControl);
       if (!controlVariant) {
         setError("Campaign created but control variant is missing.");
+        setCreatedCampaignId(campaign.id);
         setLoading(false);
         return;
       }
 
-      const patchRes = await fetch(`/api/campaigns/${campaign.id}/variants`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          variantId: controlVariant.id,
-          schemaJson: JSON.stringify(aiSchema),
-        }),
-      });
+      if (!controlVariant.id) {
+        setError("Campaign created but control variant id is missing.");
+        setCreatedCampaignId(campaign.id);
+        setLoading(false);
+        return;
+      }
 
-      if (!patchRes.ok) {
-        const data = await patchRes.json();
-        setError(data.error ?? "Campaign created, but failed to apply AI schema.");
+      setCreatedCampaignId(campaign.id);
+      setCreatedControlVariantId(controlVariant.id);
+      const schemaApplied = await applyAiSchemaToCampaign(campaign.id, controlVariant.id);
+      if (!schemaApplied) {
         setLoading(false);
         return;
       }
     }
 
+    localStorage.removeItem(NEW_CAMPAIGN_DRAFT_STORAGE_KEY);
+    setCreatedCampaignId(null);
+    setCreatedControlVariantId(null);
+    setTemplateCreateKey(crypto.randomUUID());
     router.push(getBuilderPath(campaign.id));
   };
 
@@ -223,13 +327,15 @@ export default function NewCampaignPage() {
     setLoading(true);
     setError("");
 
-    const result = await createCampaignFromTemplate(siteId, template.id);
+    const result = await createCampaignFromTemplate(siteId, template.id, fetch, { idempotencyKey: templateCreateKey });
     if (!result.ok) {
       setError(result.error);
       setLoading(false);
       return;
     }
 
+    localStorage.removeItem(NEW_CAMPAIGN_DRAFT_STORAGE_KEY);
+    setTemplateCreateKey(crypto.randomUUID());
     router.push(getBuilderPath(result.campaignId));
   };
 
@@ -247,6 +353,13 @@ export default function NewCampaignPage() {
         {error && (
           <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
             {error}
+            {createdCampaignId && creationMode === "ai" && (
+              <div className="mt-2">
+                <a href={getBuilderPath(createdCampaignId)} className="font-medium underline">
+                  Open draft in builder
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -255,7 +368,10 @@ export default function NewCampaignPage() {
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              resetCreateAttempt();
+              setName(e.target.value);
+            }}
             placeholder="e.g. Summer Sale Popup"
             required
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -266,7 +382,10 @@ export default function NewCampaignPage() {
           <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Site</label>
           <select
             value={siteId}
-            onChange={(e) => setSiteId(e.target.value)}
+            onChange={(e) => {
+              resetCreateAttempt();
+              setSiteId(e.target.value);
+            }}
             required
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
           >
@@ -283,7 +402,10 @@ export default function NewCampaignPage() {
               <button
                 key={t}
                 type="button"
-                onClick={() => setType(t)}
+                onClick={() => {
+                  resetCreateAttempt();
+                  setType(t);
+                }}
                 className={`rounded-lg border px-4 py-2 text-sm font-medium capitalize ${
                   type === t
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
@@ -307,7 +429,10 @@ export default function NewCampaignPage() {
               <button
                 key={mode.value}
                 type="button"
-                onClick={() => setCreationMode(mode.value)}
+                onClick={() => {
+                  resetCreateAttempt();
+                  setCreationMode(mode.value);
+                }}
                 className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                   creationMode === mode.value
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
@@ -356,7 +481,10 @@ export default function NewCampaignPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => setTemplateId(templateId === template.id ? undefined : template.id)}
+                    onClick={() => {
+                      resetCreateAttempt();
+                      setTemplateId(templateId === template.id ? undefined : template.id);
+                    }}
                     className="w-full text-left"
                   >
                     <div className="font-medium text-zinc-900 dark:text-zinc-100">{template.name}</div>

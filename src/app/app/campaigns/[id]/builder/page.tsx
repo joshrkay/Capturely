@@ -18,7 +18,7 @@ import { SpamSettings } from "./components/spam-settings";
 import { UnpublishedChangesBadge } from "../../components/unpublished-changes-badge";
 import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
-import type { FieldType } from "@capturely/shared-forms";
+import { validateFormSchema, type FieldType, type SchemaValidationIssue } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +55,31 @@ interface BillingStatus {
   };
   usage: {
     aiGenerationsCount: number;
+type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
+
+interface PublishPreflightIssue {
+  code: string;
+  category: PublishPreflightCategory;
+  message: string;
+  variantId?: string;
+  variantName?: string;
+  path?: string;
+}
+
+interface PublishResponse {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  failures?: Array<{
+    variantId: string | null;
+    variantName: string | null;
+    rule: string;
+    message: string;
+  }>;
+  preflight?: {
+    passed: boolean;
+    errors: PublishPreflightIssue[];
+    warnings?: PublishPreflightIssue[];
   };
 }
 
@@ -779,22 +804,22 @@ export default function BuilderPage() {
         details?: {
           variantName?: string;
           variantId?: string;
-          issues?: Array<{ path?: string; message?: string }>;
+          issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
           variants?: Array<{
             variantName?: string;
             variantId?: string;
-            issues?: Array<{ path?: string; message?: string }>;
+            issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
           }>;
         };
       } : null;
 
       const variantIssues = parsed?.details?.variants?.flatMap((variant) => {
         const variantLabel = variant.variantName ?? variant.variantId ?? "Variant";
-        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`);
+        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`);
       }) ?? [];
       const directIssues = (parsed?.details?.issues ?? []).map((issue) => {
         const variantLabel = parsed?.details?.variantName ?? parsed?.details?.variantId ?? "Variant";
-        return `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`;
+        return `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`;
       });
 
       const allIssues = [...variantIssues, ...directIssues];
@@ -808,6 +833,20 @@ export default function BuilderPage() {
     let schemaSaved = false;
     let settingsSaved = true;
     let settingsFailureMessage = "";
+
+    const localSchemaValidation = validateFormSchema(schema, {
+      requireSubmitField: true,
+      requireEmailField: true,
+    });
+    if (!localSchemaValidation.valid) {
+      const localIssues = localSchemaValidation.errors
+        .map((issue: SchemaValidationIssue) => `${issue.field ?? issue.path}: ${issue.reason ?? issue.message}`)
+        .join("; ");
+      setMessage(`Schema save failed: ${localIssues}`);
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
 
     // Save variant schema
     const schemaRes = await fetch(`/api/campaigns/${id}/variants`, {
@@ -887,13 +926,14 @@ export default function BuilderPage() {
         ok: false,
         error: (data as { error?: string }).error ?? "Publish failed.",
         code: (data as { code?: string }).code,
-        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+        failures: (data as { failures?: PublishResponse["failures"] }).failures,
       };
       setPublishResult(response);
-      if (response.preflight?.errors.length) {
-        const firstIssue = response.preflight.errors[0];
-        const variantLabel = firstIssue.variantName ? `${firstIssue.variantName}: ` : "";
-        setMessage(`Publish blocked [${firstIssue.category}] ${variantLabel}${firstIssue.message}`);
+      if (response.failures?.length) {
+        const firstFailure = response.failures[0];
+        const variantLabel = firstFailure.variantName ?? "Campaign";
+        const summary = response.failures.length > 1 ? ` (+${response.failures.length - 1} more)` : "";
+        setMessage(`Publish blocked: ${variantLabel} — ${firstFailure.message}${summary}`);
       } else {
         setMessage(`Error: ${response.error}`);
       }
