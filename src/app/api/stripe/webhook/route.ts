@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { verifyWebhookSignature } from "@/lib/stripe";
-import { sendPaymentFailedEmail, sendAccountSuspendedEmail } from "@/lib/email";
+import { sendPaymentFailedEmail } from "@/lib/email";
 import Stripe from "stripe";
 
 /** POST /api/stripe/webhook — Handle Stripe webhook events */
@@ -120,11 +121,15 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Send email to owner (best-effort, userId may not map to email here)
-        try {
-          await sendPaymentFailedEmail("owner@example.com", account.name);
-        } catch {
-          // Email sending is best-effort
+        const toEmail = await getAccountOwnerEmail(account.id);
+        if (!toEmail) {
+          console.error("[stripe webhook] payment failed: no owner email for account", { accountId: account.id });
+        } else {
+          try {
+            await sendPaymentFailedEmail(toEmail, account.name);
+          } catch {
+            // Email sending is best-effort
+          }
         }
       }
       break;
