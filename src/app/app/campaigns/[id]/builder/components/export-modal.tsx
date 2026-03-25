@@ -25,6 +25,12 @@ interface PublishResult {
   ok: boolean;
   error?: string;
   code?: string;
+  failures?: Array<{
+    variantId: string | null;
+    variantName: string | null;
+    rule: string;
+    message: string;
+  }>;
   preflight?: {
     passed: boolean;
     errors: PublishPreflightIssue[];
@@ -267,19 +273,14 @@ export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign, 
           </>
         )}
 
-        {publishResult?.preflight && !publishResult.preflight.passed && (
+        {publishResult?.failures && publishResult.failures.length > 0 && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-900/20 dark:text-red-200">
             <p className="font-medium">Publish checks failed</p>
-            <ul className="mt-2 space-y-1">
-              {publishResult.preflight.errors.map((issue, index) => (
-                <li key={`${issue.code}-${issue.variantId ?? "global"}-${index}`}>
-                  <span className="font-medium">[{issue.category}] {issue.code}</span>
-                  {" — "}
-                  <span>
-                    {issue.variantName ? `${issue.variantName}: ` : ""}
-                    {issue.message}
-                    {issue.path ? ` (${issue.path})` : ""}
-                  </span>
+            <ul className="mt-2 space-y-1.5">
+              {publishResult.failures.map((failure, index) => (
+                <li key={`${failure.rule}-${failure.variantId ?? "global"}-${index}`} className="leading-snug">
+                  <span className="font-medium">{failure.variantName ?? "Campaign"}</span>
+                  <span className="text-red-700/80 dark:text-red-300/80"> — {failure.message}</span>
                 </li>
               ))}
             </ul>

@@ -63,6 +63,12 @@ interface PublishResponse {
   ok: boolean;
   error?: string;
   code?: string;
+  failures?: Array<{
+    variantId: string | null;
+    variantName: string | null;
+    rule: string;
+    message: string;
+  }>;
   preflight?: {
     passed: boolean;
     errors: PublishPreflightIssue[];
@@ -890,13 +896,14 @@ export default function BuilderPage() {
         ok: false,
         error: (data as { error?: string }).error ?? "Publish failed.",
         code: (data as { code?: string }).code,
-        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+        failures: (data as { failures?: PublishResponse["failures"] }).failures,
       };
       setPublishResult(response);
-      if (response.preflight?.errors.length) {
-        const firstIssue = response.preflight.errors[0];
-        const variantLabel = firstIssue.variantName ? `${firstIssue.variantName}: ` : "";
-        setMessage(`Publish blocked [${firstIssue.category}] ${variantLabel}${firstIssue.message}`);
+      if (response.failures?.length) {
+        const firstFailure = response.failures[0];
+        const variantLabel = firstFailure.variantName ?? "Campaign";
+        const summary = response.failures.length > 1 ? ` (+${response.failures.length - 1} more)` : "";
+        setMessage(`Publish blocked: ${variantLabel} — ${firstFailure.message}${summary}`);
       } else {
         setMessage(`Error: ${response.error}`);
       }
