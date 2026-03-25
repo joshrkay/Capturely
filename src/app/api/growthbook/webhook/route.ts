@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getExperimentResults } from "@/lib/growthbook";
 import { republishSiteManifest } from "@/lib/manifest-publish";
+import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
 import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { sendExperimentCompletedEmail } from "@/lib/email";
 

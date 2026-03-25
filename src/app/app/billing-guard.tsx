@@ -15,6 +15,7 @@ export function BillingGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Don't block billing page, accept-invite, or settings
     if (pathname === "/app/billing" || pathname.startsWith("/app/billing")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChecked(true);
       return;
     }

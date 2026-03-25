@@ -25,8 +25,9 @@ model Account {
   stripeSubscriptionId String?   @map("stripe_subscription_id")
   paymentStatus        String    @default("active") @map("payment_status") // active, past_due, suspended
   paymentGraceUntil    DateTime? @map("payment_grace_until")
-  billingCycleStart    DateTime? @map("billing_cycle_start")
-  billingCycleEnd      DateTime? @map("billing_cycle_end")
+  billingCycleStart            DateTime? @map("billing_cycle_start")
+  billingCycleEnd              DateTime? @map("billing_cycle_end")
+  notificationPreferencesJson  String?   @map("notification_preferences_json")
 
   members       AccountMember[]
   invites       Invite[]

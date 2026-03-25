@@ -54,6 +54,7 @@ export function VariantCard({
   // Focus name input when entering edit mode
   useEffect(() => {
     if (isEditingName) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDraftName(variant.name);
       nameInputRef.current?.focus();
       nameInputRef.current?.select();

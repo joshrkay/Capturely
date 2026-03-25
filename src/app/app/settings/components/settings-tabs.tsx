@@ -1,20 +1,13 @@
 "use client";
 
-import { useMemo, useRef, type KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { canManageBilling } from "@/lib/rbac";
+import { getVisibleSettingsTabs, type SettingsTabKey } from "@/lib/settings-tabs-policy";
 import { AccountTab } from "./account-tab";
 import { TeamTab } from "./team-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { ApiKeysTab } from "./api-keys-tab";
 import { DangerZoneTab } from "./danger-zone-tab";
-
-export type SettingsTabKey =
-  | "account"
-  | "team"
-  | "notifications"
-  | "api-keys"
-  | "danger-zone";
 
 type SettingsTabsProps = {
   initialTab: SettingsTabKey;
@@ -55,25 +48,7 @@ export function SettingsTabs({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const disableMutations = role === "member";
-  const canSeeDangerZone = canManageBilling(
-    role as Parameters<typeof canManageBilling>[0]
-  );
-
-  const tabs = useMemo(() => {
-    const baseTabs: Array<{ key: SettingsTabKey; label: string }> = [
-      { key: "account", label: "Account" },
-      { key: "team", label: "Team" },
-      { key: "notifications", label: "Notifications" },
-      { key: "api-keys", label: "API Keys" },
-    ];
-
-    if (canSeeDangerZone) {
-      baseTabs.push({ key: "danger-zone", label: "Danger Zone" });
-    }
-
-    return baseTabs;
-  }, [canSeeDangerZone]);
-
+  const tabs = getVisibleSettingsTabs(role);
 
   const activeTab: SettingsTabKey = tabs.some((tab) => tab.key === initialTab)
     ? initialTab
@@ -179,7 +154,7 @@ export function SettingsTabs({
           <NotificationsTab disableMutations={disableMutations} />
         )}
         {activeTab === "api-keys" && <ApiKeysTab sites={sites} />}
-        {activeTab === "danger-zone" && canSeeDangerZone && <DangerZoneTab />}
+        {activeTab === "danger-zone" && <DangerZoneTab />}
       </div>
     </div>
   );

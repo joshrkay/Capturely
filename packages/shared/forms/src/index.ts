@@ -18,6 +18,6 @@ export type {
 
 export { BOX_SHADOW_MAP } from "./types";
 export { evaluateVisibility, evaluateCondition, getVisibleFields } from "./visibility";
-export { validateSubmission } from "./validation";
-export type { ValidationError, ValidationResult } from "./validation";
+export { validateSubmission, validateFormSchema, validateFormSchemaJson } from "./validation";
+export type { ValidationError, ValidationResult, SchemaValidationIssue, SchemaValidationResult, SchemaJsonValidationResult } from "./validation";
 export { normalizeFields, buildSubmissionPayload } from "./normalize";

@@ -46,12 +46,36 @@ const createCampaignSchema = z.object({
   optimizationGoalFieldKey: z.string().max(200).optional().nullable(),
 });
 
+const globalForCampaignIdempotency = globalThis as typeof globalThis & {
+  campaignCreateIdempotencyCache?: Map<string, string>;
+};
+
+const campaignCreateIdempotencyCache =
+  globalForCampaignIdempotency.campaignCreateIdempotencyCache ??
+  (globalForCampaignIdempotency.campaignCreateIdempotencyCache = new Map<string, string>());
+
 /** POST /api/campaigns — Create a new campaign with a default Control variant */
 export async function POST(req: NextRequest) {
   try {
     const ctx = await withAccountContext();
     if (!canManageCampaigns(ctx.role)) {
       return NextResponse.json({ error: "Forbidden", code: "FORBIDDEN" }, { status: 403 });
+    }
+
+    const idempotencyKeyHeader = req.headers.get("idempotency-key")?.trim();
+    const idempotencyCacheKey = idempotencyKeyHeader ? `${ctx.accountId}:${idempotencyKeyHeader}` : null;
+    if (idempotencyCacheKey) {
+      const existingCampaignId = campaignCreateIdempotencyCache.get(idempotencyCacheKey);
+      if (existingCampaignId) {
+        const existingCampaign = await prisma.campaign.findUnique({
+          where: { id: existingCampaignId },
+          include: { variants: true },
+        });
+        if (existingCampaign) {
+          return NextResponse.json(existingCampaign, { status: 200 });
+        }
+        campaignCreateIdempotencyCache.delete(idempotencyCacheKey);
+      }
     }
 
     const body = await req.json();
@@ -135,6 +159,10 @@ export async function POST(req: NextRequest) {
       where: { id: campaign.id },
       include: { variants: true },
     });
+
+    if (idempotencyCacheKey && result) {
+      campaignCreateIdempotencyCache.set(idempotencyCacheKey, result.id);
+    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (err) {

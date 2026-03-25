@@ -14,9 +14,10 @@ import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
 import { SpamSettings } from "./components/spam-settings";
+import { UnpublishedChangesBadge } from "../../components/unpublished-changes-badge";
 import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
-import type { FieldType } from "@capturely/shared-forms";
+import { validateFormSchema, type FieldType, type SchemaValidationIssue } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,34 @@ interface Campaign {
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
   accountPlanKey: string;
+}
+
+type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
+
+interface PublishPreflightIssue {
+  code: string;
+  category: PublishPreflightCategory;
+  message: string;
+  variantId?: string;
+  variantName?: string;
+  path?: string;
+}
+
+interface PublishResponse {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  failures?: Array<{
+    variantId: string | null;
+    variantName: string | null;
+    rule: string;
+    message: string;
+  }>;
+  preflight?: {
+    passed: boolean;
+    errors: PublishPreflightIssue[];
+    warnings?: PublishPreflightIssue[];
+  };
 }
 
 const FIELD_TYPES: { type: FieldType; label: string }[] = [
@@ -636,6 +665,7 @@ export default function BuilderPage() {
   const [viewport, setViewport] = useState<ViewportKey>("desktop");
   const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResponse | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -733,17 +763,68 @@ export default function BuilderPage() {
     setSelectedFieldId(null);
   }, [schema, updateSchema]);
 
-  const handleSave = async () => {
-    if (!schema || !campaign) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!schema || !campaign) return false;
     setSaving(true);
     setMessage("");
 
+    const formatValidationMessage = (data: unknown, fallbackPrefix: string) => {
+      const parsed = (typeof data === "object" && data !== null) ? data as {
+        error?: string;
+        details?: {
+          variantName?: string;
+          variantId?: string;
+          issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
+          variants?: Array<{
+            variantName?: string;
+            variantId?: string;
+            issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
+          }>;
+        };
+      } : null;
+
+      const variantIssues = parsed?.details?.variants?.flatMap((variant) => {
+        const variantLabel = variant.variantName ?? variant.variantId ?? "Variant";
+        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`);
+      }) ?? [];
+      const directIssues = (parsed?.details?.issues ?? []).map((issue) => {
+        const variantLabel = parsed?.details?.variantName ?? parsed?.details?.variantId ?? "Variant";
+        return `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`;
+      });
+
+      const allIssues = [...variantIssues, ...directIssues];
+      if (allIssues.length > 0) {
+        return `${fallbackPrefix}: ${allIssues.join("; ")}`;
+      }
+
+      return `${fallbackPrefix}: ${parsed?.error ?? "Request failed"}`;
+    };
+
+    let schemaSaved = false;
+    let settingsSaved = true;
+    let settingsFailureMessage = "";
+
+    const localSchemaValidation = validateFormSchema(schema, {
+      requireSubmitField: true,
+      requireEmailField: true,
+    });
+    if (!localSchemaValidation.valid) {
+      const localIssues = localSchemaValidation.errors
+        .map((issue: SchemaValidationIssue) => `${issue.field ?? issue.path}: ${issue.reason ?? issue.message}`)
+        .join("; ");
+      setMessage(`Schema save failed: ${localIssues}`);
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
+
     // Save variant schema
-    await fetch(`/api/campaigns/${id}/variants`, {
+    const schemaRes = await fetch(`/api/campaigns/${id}/variants`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variantId: activeVariantId, schemaJson: JSON.stringify(schema) }),
     });
+    schemaSaved = schemaRes.ok;
 
     // Save campaign settings
     const updates: Record<string, unknown> = {};
@@ -752,37 +833,95 @@ export default function BuilderPage() {
     if (campaign.frequencyJson) updates.frequencyJson = campaign.frequencyJson;
 
     if (Object.keys(updates).length > 0) {
-      await fetch(`/api/campaigns/${id}`, {
+      const settingsRes = await fetch(`/api/campaigns/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      settingsSaved = settingsRes.ok;
+
+      if (!settingsRes.ok) {
+        const settingsData = await settingsRes.json().catch(() => null);
+        settingsFailureMessage = formatValidationMessage(settingsData, "Settings save failed");
+        if (schemaSaved) {
+          setMessage(settingsFailureMessage);
+        }
+      }
     }
 
-    setMessage("Draft saved");
+    if (schemaSaved && settingsSaved) {
+      setMessage("Draft saved");
+      setSaving(false);
+      setTimeout(() => setMessage(""), 2000);
+      return true;
+    }
+
+    if (!schemaSaved) {
+      const schemaData = await schemaRes.json().catch(() => null);
+      setMessage(formatValidationMessage(schemaData, "Schema save failed"));
+    }
+
+    if (schemaSaved && !settingsSaved) {
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
+
+    if (!schemaSaved && !settingsSaved) {
+      setMessage((prev) => `${prev} | ${settingsFailureMessage || "Settings save failed"}`);
+    }
+
     setSaving(false);
-    setTimeout(() => setMessage(""), 2000);
+    setTimeout(() => setMessage(""), 4000);
+    return false;
   };
 
-  const handlePublish = async (): Promise<boolean> => {
-    await handleSave();
+  const handlePublish = async (): Promise<PublishResponse> => {
+    const saveOk = await handleSave();
+    if (!saveOk) {
+      return {
+        ok: false,
+        code: "DRAFT_SAVE_FAILED",
+        error: "Failed to save draft before publish.",
+      };
+    }
     setPublishing(true);
     setMessage("");
+    setPublishResult(null);
 
     const res = await fetch(`/api/campaigns/${id}/publish`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json();
-      setMessage(`Error: ${data.error}`);
+      const response: PublishResponse = {
+        ok: false,
+        error: (data as { error?: string }).error ?? "Publish failed.",
+        code: (data as { code?: string }).code,
+        failures: (data as { failures?: PublishResponse["failures"] }).failures,
+      };
+      setPublishResult(response);
+      if (response.failures?.length) {
+        const firstFailure = response.failures[0];
+        const variantLabel = firstFailure.variantName ?? "Campaign";
+        const summary = response.failures.length > 1 ? ` (+${response.failures.length - 1} more)` : "";
+        setMessage(`Publish blocked: ${variantLabel} — ${firstFailure.message}${summary}`);
+      } else {
+        setMessage(`Error: ${response.error}`);
+      }
       setPublishing(false);
       setTimeout(() => setMessage(""), 3000);
-      return false;
+      return response;
     } else {
       setMessage("Published!");
       setCampaign((prev) => prev ? { ...prev, status: "published", hasUnpublishedChanges: false } : prev);
+      const response: PublishResponse = {
+        ok: true,
+        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+      };
+      setPublishResult(response);
+      setPublishing(false);
+      setTimeout(() => setMessage(""), 3000);
+      return response;
     }
-    setPublishing(false);
-    setTimeout(() => setMessage(""), 3000);
-    return true;
   };
 
   const handleCampaignUpdate = (updates: Record<string, unknown>) => {
@@ -810,7 +949,7 @@ export default function BuilderPage() {
             {campaign.status}
           </span>
           {campaign.hasUnpublishedChanges && (
-            <span className="text-xs text-amber-600">unsaved changes</span>
+            <UnpublishedChangesBadge />
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -859,6 +998,7 @@ export default function BuilderPage() {
         onPublish={handlePublish}
         publishing={publishing}
         campaign={campaign}
+        publishResult={publishResult}
       />
 
       {/* Three-panel layout */}
