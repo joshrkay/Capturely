@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageBilling } from "@/lib/rbac";
-import { createCheckoutSession } from "@/lib/stripe";
+import { createCheckoutSession, StripeConfigurationError } from "@/lib/stripe";
 
 const checkoutSchema = z.object({
   planKey: z.enum(["starter", "growth"]),
@@ -44,6 +44,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
+    }
+    if (err instanceof StripeConfigurationError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: 503 }
+      );
     }
     throw err;
   }
