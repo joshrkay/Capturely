@@ -354,20 +354,32 @@ export function VariantManagerPanel({
     setPendingTraffic({});
 
     try {
-      await Promise.all(
-        changedVariants.map((v) =>
-          fetch(`/api/campaigns/${campaignId}/variants`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              variantId: v.id,
-              trafficPercentage: pendingTraffic[v.id],
-            }),
-          }).then(async (res) => {
-            if (!res.ok) throw new Error("PATCH failed");
-          })
-        )
+      const res = await fetch(`/api/campaigns/${campaignId}/variants`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trafficUpdates: changedVariants.map((v) => ({
+            variantId: v.id,
+            trafficPercentage: pendingTraffic[v.id],
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("PATCH failed");
+      }
+
+      const { allVariants } = await res.json();
+      const authoritativeVariants: Variant[] = allVariants.map(
+        (av: { id: string; name: string; trafficPercentage: number; isControl: boolean }) => {
+          const existing = snapshot.find((v) => v.id === av.id);
+          return existing
+            ? { ...existing, name: av.name, isControl: av.isControl, trafficPercentage: av.trafficPercentage }
+            : av as unknown as Variant;
+        }
       );
+      setVariants(authoritativeVariants);
+      onVariantsChange(authoritativeVariants);
     } catch {
       setVariants(snapshot);
       showError("Failed to save traffic allocation");
