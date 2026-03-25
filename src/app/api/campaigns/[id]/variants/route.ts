@@ -112,7 +112,10 @@ export async function POST(
       );
     }
 
-    const schemaValidation = validateFormSchemaJson(parsed.data.schemaJson);
+    const schemaValidation = validateFormSchemaJson(parsed.data.schemaJson, {
+      requireSubmitField: true,
+      requireEmailField: true,
+    });
     if (!schemaValidation.valid) {
       return schemaValidationErrorResponse(schemaValidation.errors);
     }
@@ -195,7 +198,10 @@ export async function PATCH(
     const { variantId, trafficUpdates, ...rest } = parsed.data;
 
     if (rest.schemaJson !== undefined && variantId) {
-      const schemaValidation = validateFormSchemaJson(rest.schemaJson);
+      const schemaValidation = validateFormSchemaJson(rest.schemaJson, {
+        requireSubmitField: true,
+        requireEmailField: true,
+      });
       if (!schemaValidation.valid) {
         return schemaValidationErrorResponse(schemaValidation.errors, { id: variantId });
       }

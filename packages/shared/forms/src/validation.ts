@@ -14,6 +14,8 @@ export interface ValidationResult {
 export interface SchemaValidationIssue {
   path: string;
   message: string;
+  field?: string;
+  reason?: string;
 }
 
 export interface SchemaValidationResult {
@@ -48,6 +50,15 @@ const REQUIRED_STYLE_KEYS: Array<keyof NonNullable<FormSchema["style"]>> = [
   "fontFamily",
 ];
 
+export interface SchemaValidationOptions {
+  requireSubmitField?: boolean;
+  requireEmailField?: boolean;
+}
+
+function createIssue(path: string, message: string): SchemaValidationIssue {
+  return { path, message, field: path, reason: message };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -61,22 +72,22 @@ function validateField(field: unknown, index: number): SchemaValidationIssue[] {
   const parsedField = asRecord(field);
 
   if (!parsedField) {
-    return [{ path: pathBase, message: "Field must be an object" }];
+    return [createIssue(pathBase, "Field must be an object")];
   }
 
   const fieldId = parsedField.fieldId;
   if (typeof fieldId !== "string" || fieldId.trim().length === 0) {
-    errors.push({ path: `${pathBase}.fieldId`, message: "fieldId is required" });
+    errors.push(createIssue(`${pathBase}.fieldId`, "fieldId is required"));
   }
 
   const label = parsedField.label;
   if (typeof label !== "string" || label.trim().length === 0) {
-    errors.push({ path: `${pathBase}.label`, message: "label is required" });
+    errors.push(createIssue(`${pathBase}.label`, "label is required"));
   }
 
   const type = parsedField.type;
   if (typeof type !== "string" || !VALID_FIELD_TYPES.has(type as FieldType)) {
-    errors.push({ path: `${pathBase}.type`, message: "Invalid field type" });
+    errors.push(createIssue(`${pathBase}.type`, "Invalid field type"));
   }
 
   const typedFieldType = typeof type === "string" ? (type as FieldType) : null;
@@ -84,30 +95,21 @@ function validateField(field: unknown, index: number): SchemaValidationIssue[] {
 
   if (typedFieldType && FIELD_TYPES_WITH_OPTIONS.has(typedFieldType)) {
     if (!Array.isArray(options) || options.length === 0) {
-      errors.push({ path: `${pathBase}.options`, message: `Options are required for ${typedFieldType} fields` });
+      errors.push(createIssue(`${pathBase}.options`, `Options are required for ${typedFieldType} fields`));
     } else {
       options.forEach((option, optionIndex) => {
         const parsedOption = asRecord(option);
         if (!parsedOption) {
-          errors.push({
-            path: `${pathBase}.options[${optionIndex}]`,
-            message: "Option must be an object",
-          });
+          errors.push(createIssue(`${pathBase}.options[${optionIndex}]`, "Option must be an object"));
           return;
         }
 
         if (typeof parsedOption.value !== "string" || parsedOption.value.trim().length === 0) {
-          errors.push({
-            path: `${pathBase}.options[${optionIndex}].value`,
-            message: "Option value is required",
-          });
+          errors.push(createIssue(`${pathBase}.options[${optionIndex}].value`, "Option value is required"));
         }
 
         if (typeof parsedOption.label !== "string" || parsedOption.label.trim().length === 0) {
-          errors.push({
-            path: `${pathBase}.options[${optionIndex}].label`,
-            message: "Option label is required",
-          });
+          errors.push(createIssue(`${pathBase}.options[${optionIndex}].label`, "Option label is required"));
         }
       });
     }
@@ -115,10 +117,7 @@ function validateField(field: unknown, index: number): SchemaValidationIssue[] {
 
   if (typedFieldType && !FIELD_TYPES_WITH_OPTIONS.has(typedFieldType) && options !== undefined) {
     if (!Array.isArray(options) || options.length > 0) {
-      errors.push({
-        path: `${pathBase}.options`,
-        message: `Options are only allowed for dropdown or radio fields`,
-      });
+      errors.push(createIssue(`${pathBase}.options`, "Options are only allowed for dropdown or radio fields"));
     }
   }
 
@@ -128,19 +127,24 @@ function validateField(field: unknown, index: number): SchemaValidationIssue[] {
 /**
  * Validate persisted campaign form schema shape.
  */
-export function validateFormSchema(schema: unknown): SchemaValidationResult {
+export function validateFormSchema(
+  schema: unknown,
+  options: SchemaValidationOptions = {}
+): SchemaValidationResult {
   const errors: SchemaValidationIssue[] = [];
   const parsedSchema = asRecord(schema);
+  const requireSubmitField = options.requireSubmitField ?? true;
+  const requireEmailField = options.requireEmailField ?? false;
 
   if (!parsedSchema) {
-    return { valid: false, errors: [{ path: "schema", message: "Schema must be an object" }] };
+    return { valid: false, errors: [createIssue("schema", "Schema must be an object")] };
   }
 
   if (!Array.isArray(parsedSchema.fields)) {
-    errors.push({ path: "fields", message: "fields must be an array" });
+    errors.push(createIssue("fields", "fields must be an array"));
   } else {
     if (parsedSchema.fields.length === 0) {
-      errors.push({ path: "fields", message: "At least one field is required" });
+      errors.push(createIssue("fields", "At least one field is required"));
     }
 
     parsedSchema.fields.forEach((field, index) => {
@@ -151,19 +155,79 @@ export function validateFormSchema(schema: unknown): SchemaValidationResult {
       const parsedField = asRecord(field);
       return parsedField?.type === "submit";
     });
-    if (!hasSubmit) {
-      errors.push({ path: "fields", message: "At least one submit field is required" });
+    if (requireSubmitField && !hasSubmit) {
+      errors.push(createIssue("fields", "At least one submit field is required"));
+    }
+
+    const hasEmail = parsedSchema.fields.some((field) => {
+      const parsedField = asRecord(field);
+      return parsedField?.type === "email";
+    });
+    if (requireEmailField && !hasEmail) {
+      errors.push(createIssue("fields", "At least one email field is required"));
+    }
+  }
+
+  const steps = parsedSchema.steps;
+  if (steps !== undefined) {
+    if (!Array.isArray(steps)) {
+      errors.push(createIssue("steps", "steps must be an array when provided"));
+    } else {
+      const fieldIds = new Set(
+        (Array.isArray(parsedSchema.fields) ? parsedSchema.fields : [])
+          .map((field) => asRecord(field)?.fieldId)
+          .filter((fieldId): fieldId is string => typeof fieldId === "string" && fieldId.trim().length > 0)
+      );
+      const assignedFieldIds = new Set<string>();
+
+      steps.forEach((step, stepIndex) => {
+        const parsedStep = asRecord(step);
+        const pathBase = `steps[${stepIndex}]`;
+        if (!parsedStep) {
+          errors.push(createIssue(pathBase, "Step must be an object"));
+          return;
+        }
+
+        if (typeof parsedStep.label !== "string" || parsedStep.label.trim().length === 0) {
+          errors.push(createIssue(`${pathBase}.label`, "label is required"));
+        }
+
+        if (!Array.isArray(parsedStep.fieldIds)) {
+          errors.push(createIssue(`${pathBase}.fieldIds`, "fieldIds must be an array"));
+          return;
+        }
+
+        parsedStep.fieldIds.forEach((fieldId, fieldIndex) => {
+          const fieldPath = `${pathBase}.fieldIds[${fieldIndex}]`;
+          if (typeof fieldId !== "string" || fieldId.trim().length === 0) {
+            errors.push(createIssue(fieldPath, "fieldId reference must be a non-empty string"));
+            return;
+          }
+
+          if (!fieldIds.has(fieldId)) {
+            errors.push(createIssue(fieldPath, `Unknown fieldId reference: ${fieldId}`));
+            return;
+          }
+
+          if (assignedFieldIds.has(fieldId)) {
+            errors.push(createIssue(fieldPath, `fieldId is already assigned to another step: ${fieldId}`));
+            return;
+          }
+
+          assignedFieldIds.add(fieldId);
+        });
+      });
     }
   }
 
   const style = asRecord(parsedSchema.style);
   if (!style) {
-    errors.push({ path: "style", message: "style is required" });
+    errors.push(createIssue("style", "style is required"));
   } else {
     REQUIRED_STYLE_KEYS.forEach((key) => {
       const value = style[key];
       if (typeof value !== "string" || value.trim().length === 0) {
-        errors.push({ path: `style.${key}`, message: `${key} is required` });
+        errors.push(createIssue(`style.${key}`, `${key} is required`));
       }
     });
   }
@@ -174,10 +238,13 @@ export function validateFormSchema(schema: unknown): SchemaValidationResult {
 /**
  * Parse schemaJson and validate schema shape.
  */
-export function validateFormSchemaJson(schemaJson: string): SchemaJsonValidationResult {
+export function validateFormSchemaJson(
+  schemaJson: string,
+  options: SchemaValidationOptions = {}
+): SchemaJsonValidationResult {
   try {
     const parsed = JSON.parse(schemaJson) as unknown;
-    const result = validateFormSchema(parsed);
+    const result = validateFormSchema(parsed, options);
     if (!result.valid) {
       return result;
     }
@@ -186,7 +253,7 @@ export function validateFormSchemaJson(schemaJson: string): SchemaJsonValidation
   } catch {
     return {
       valid: false,
-      errors: [{ path: "schemaJson", message: "schemaJson must be valid JSON" }],
+      errors: [createIssue("schemaJson", "schemaJson must be valid JSON")],
     };
   }
 }
