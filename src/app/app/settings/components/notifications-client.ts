@@ -1,4 +1,5 @@
 import {
+  buildSettingsPatchPayload,
   defaultNotificationPreferences,
   type NotificationPreferences,
 } from "@/lib/settings";
@@ -43,9 +44,7 @@ export async function saveNotificationPreferences(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      notificationPreferences: preferences,
-    }),
+    body: JSON.stringify(buildSettingsPatchPayload({ notificationPreferences: preferences })),
   });
 
   if (!response.ok) {

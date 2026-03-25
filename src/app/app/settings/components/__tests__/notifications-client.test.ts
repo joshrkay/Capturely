@@ -3,6 +3,7 @@ import {
   fetchNotificationPreferences,
   saveNotificationPreferences,
 } from "../notifications-client";
+import { updateSettingsSchema } from "@/lib/settings";
 
 describe("notifications settings client", () => {
   it("reload reflects previously saved values from persisted settings", async () => {
@@ -15,13 +16,16 @@ describe("notifications settings client", () => {
 
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body)) as {
-          notificationPreferences: typeof persisted;
-        };
+        const body = JSON.parse(String(init.body)) as unknown;
+        const parsed = updateSettingsSchema.safeParse(body);
+
+        expect(parsed.success).toBe(true);
+        expect(body).not.toHaveProperty("name");
+        expect(body).not.toHaveProperty("notifications");
 
         persisted = {
           ...persisted,
-          ...body.notificationPreferences,
+          ...(parsed.success ? parsed.data.notificationPreferences : {}),
         };
 
         return {
