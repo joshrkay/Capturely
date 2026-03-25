@@ -47,6 +47,28 @@ interface Campaign {
   accountPlanKey: string;
 }
 
+type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
+
+interface PublishPreflightIssue {
+  code: string;
+  category: PublishPreflightCategory;
+  message: string;
+  variantId?: string;
+  variantName?: string;
+  path?: string;
+}
+
+interface PublishResponse {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  preflight?: {
+    passed: boolean;
+    errors: PublishPreflightIssue[];
+    warnings?: PublishPreflightIssue[];
+  };
+}
+
 const FIELD_TYPES: { type: FieldType; label: string }[] = [
   { type: "text", label: "Text" },
   { type: "email", label: "Email" },
@@ -636,6 +658,7 @@ export default function BuilderPage() {
   const [viewport, setViewport] = useState<ViewportKey>("desktop");
   const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResponse | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -832,28 +855,51 @@ export default function BuilderPage() {
     return false;
   };
 
-  const handlePublish = async (): Promise<boolean> => {
+  const handlePublish = async (): Promise<PublishResponse> => {
     const saveOk = await handleSave();
     if (!saveOk) {
-      return false;
+      return {
+        ok: false,
+        code: "DRAFT_SAVE_FAILED",
+        error: "Failed to save draft before publish.",
+      };
     }
     setPublishing(true);
     setMessage("");
+    setPublishResult(null);
 
     const res = await fetch(`/api/campaigns/${id}/publish`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json();
-      setMessage(`Error: ${data.error}`);
+      const response: PublishResponse = {
+        ok: false,
+        error: (data as { error?: string }).error ?? "Publish failed.",
+        code: (data as { code?: string }).code,
+        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+      };
+      setPublishResult(response);
+      if (response.preflight?.errors.length) {
+        const firstIssue = response.preflight.errors[0];
+        const variantLabel = firstIssue.variantName ? `${firstIssue.variantName}: ` : "";
+        setMessage(`Publish blocked [${firstIssue.category}] ${variantLabel}${firstIssue.message}`);
+      } else {
+        setMessage(`Error: ${response.error}`);
+      }
       setPublishing(false);
       setTimeout(() => setMessage(""), 3000);
-      return false;
+      return response;
     } else {
       setMessage("Published!");
       setCampaign((prev) => prev ? { ...prev, status: "published", hasUnpublishedChanges: false } : prev);
+      const response: PublishResponse = {
+        ok: true,
+        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+      };
+      setPublishResult(response);
+      setPublishing(false);
+      setTimeout(() => setMessage(""), 3000);
+      return response;
     }
-    setPublishing(false);
-    setTimeout(() => setMessage(""), 3000);
-    return true;
   };
 
   const handleCampaignUpdate = (updates: Record<string, unknown>) => {
@@ -930,6 +976,7 @@ export default function BuilderPage() {
         onPublish={handlePublish}
         publishing={publishing}
         campaign={campaign}
+        publishResult={publishResult}
       />
 
       {/* Three-panel layout */}
