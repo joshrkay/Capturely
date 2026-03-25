@@ -128,7 +128,8 @@ These are the items that **MUST** be completed before a user can go through the 
 - [ ] Include `packages/shared/forms/` in the bundle (shared validation/visibility)
 - [ ] Output to `public/widget.js` or a CDN-served location
 - [ ] Add `npm run widget:build` script to root `package.json`
-- [ ] Verify widget loads via `<script src="...">` and reads `data-public-key`
+- [ ] **BUG FIX:** `embed-utils.ts` generates `data-pk` but `widget.ts` reads `data-public-key` — align these
+- [ ] Verify widget loads via `<script src="...">` and reads the correct data attribute
 - [ ] Test: widget fetches manifest, renders form, submits successfully
 
 #### 3. Manifest Generation Pipeline
@@ -321,6 +322,8 @@ These are the items that **MUST** be completed before a user can go through the 
 **Recommended:** Serve `widget.js` as a static asset from Vercel's edge network (`https://capturely.com/widget.js`). This is the simplest path — no separate CDN setup needed. Vercel automatically handles edge caching, gzip, and global distribution.
 
 ### Manifest Storage Decision
+**Embed code also hardcodes `https://cdn.capturely.io/widget.js`** which doesn't exist — needs to point to actual hosting URL.
+
 **For launch:** Write manifests to Vercel Blob Storage or serve via API route with caching. Writing to `/public/manifests/` works locally but won't persist across Vercel serverless function invocations.
 
 **Recommended approach:** Create an API route `GET /api/runtime/manifest/[publicKey]` that reads from the database and returns the manifest JSON with aggressive caching headers (`Cache-Control: public, max-age=60`). This eliminates the need for file storage entirely.
