@@ -79,6 +79,14 @@ Located: `src/lib/rbac.ts`
 - Team management is rendered inside the `team` tab (member list, role badges, "(you)" indicator)
 - Legacy `/app/settings/team` route now redirects to `/app/settings?tab=team`
 
+| Tab | Allowed Roles | Allowed Actions |
+|-----|---------------|-----------------|
+| `account` | owner, admin, member | View account profile; owner/admin can update account name |
+| `team` | owner, admin, member | View team roster; owner/admin can manage invites and member roles |
+| `notifications` | owner, admin, member | View notification preferences; owner/admin can save preference changes |
+| `api-keys` | owner, admin, member | View site API keys; owner/admin can rotate/publish keys through protected APIs |
+| `danger-zone` | owner | Delete account |
+
 **Invite System:**
 - `POST /api/invites` — Create invite (email + role, 7-day expiration, dedup check)
 - `GET /api/invites` — List invites with status

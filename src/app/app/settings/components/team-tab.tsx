@@ -5,6 +5,8 @@ type TeamMember = {
   createdAt: string;
 };
 
+const CANONICAL_INVITE_PATH = "/app/settings/team/invite";
+
 type TeamTabProps = {
   members: TeamMember[];
   currentUserId: string;
