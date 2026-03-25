@@ -7,6 +7,7 @@ import {
   generateShopifySnippet,
   generateWordPressSnippet,
 } from "@/lib/embed-utils";
+import { UnpublishedChangesBadge } from "../../../components/unpublished-changes-badge";
 
 type ExportTab = "generic" | "shopify" | "wordpress" | "gtm";
 type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
@@ -146,7 +147,7 @@ export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign, 
 
   const statusBadge = (() => {
     if (campaign.hasUnpublishedChanges) {
-      return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unpublished Changes</span>;
+      return <UnpublishedChangesBadge />;
     }
 
     if (campaign.status === "published") {
