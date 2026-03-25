@@ -20,13 +20,13 @@ model Account {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Billing fields (Gate E)
-  planKey               String  @default("free") @map("plan_key")
-  stripeCustomerId      String? @unique @map("stripe_customer_id")
-  stripeSubscriptionId  String? @map("stripe_subscription_id")
-  paymentStatus         String  @default("active") @map("payment_status") // active, past_due, suspended
-  paymentGraceUntil     DateTime? @map("payment_grace_until")
-  billingCycleStart     DateTime? @map("billing_cycle_start")
-  billingCycleEnd       DateTime? @map("billing_cycle_end")
+  planKey              String    @default("free") @map("plan_key")
+  stripeCustomerId     String?   @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  paymentStatus        String    @default("active") @map("payment_status") // active, past_due, suspended
+  paymentGraceUntil    DateTime? @map("payment_grace_until")
+  billingCycleStart    DateTime? @map("billing_cycle_start")
+  billingCycleEnd      DateTime? @map("billing_cycle_end")
 
   members       AccountMember[]
   invites       Invite[]
@@ -35,6 +35,7 @@ model Account {
   submissions   Submission[]
   notifications Notification[]
   usage         AccountUsage?
+  integrations  Integration[]
 
   @@map("accounts")
 }
@@ -145,18 +146,19 @@ model Campaign {
   // Targeting & trigger config stored as JSON
   targetingJson String? @map("targeting_json")
   triggerJson   String? @map("trigger_json")
-  frequencyJson String? @map("frequency_json")
-  webhookUrl    String? @map("webhook_url")
+  frequencyJson  String? @map("frequency_json")
+  spamConfigJson String? @map("spam_config_json")
+  webhookUrl     String? @map("webhook_url")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  site              Site               @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  variants          Variant[]
-  submissions       Submission[]
-  experimentEvents  ExperimentEvent[]
-  optimizationRuns  OptimizationRun[]
+  account          Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  site             Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  variants         Variant[]
+  submissions      Submission[]
+  experimentEvents ExperimentEvent[]
+  optimizationRuns OptimizationRun[]
 
   @@index([accountId])
   @@index([siteId])
@@ -172,17 +174,17 @@ enum VariantGeneratedBy {
 }
 
 model Variant {
-  id                  String             @id @default(cuid())
-  campaignId          String             @map("campaign_id")
-  name                String             @default("Control")
-  isControl           Boolean            @default(false) @map("is_control")
-  trafficPercentage   Int                @default(100) @map("traffic_percentage")
-  schemaJson          String             @map("schema_json") // FormSchema JSON
-  schemaVersion       Int                @default(1) @map("schema_version")
-  growthbookFeatureKey String?           @map("growthbook_feature_key")
-  generatedBy         VariantGeneratedBy @default(manual) @map("generated_by")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
+  id                   String             @id @default(cuid())
+  campaignId           String             @map("campaign_id")
+  name                 String             @default("Control")
+  isControl            Boolean            @default(false) @map("is_control")
+  trafficPercentage    Int                @default(100) @map("traffic_percentage")
+  schemaJson           String             @map("schema_json") // FormSchema JSON
+  schemaVersion        Int                @default(1) @map("schema_version")
+  growthbookFeatureKey String?            @map("growthbook_feature_key")
+  generatedBy          VariantGeneratedBy @default(manual) @map("generated_by")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
 
   campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   submissions Submission[]
@@ -197,6 +199,7 @@ enum SubmissionStatus {
   new_submission @map("new")
   read
   archived
+  spam
 }
 
 model Submission {
@@ -211,6 +214,7 @@ model Submission {
   phone        String?
   name         String?
   fieldsJson   String           @map("fields_json")
+  ipAddress    String?          @map("ip_address")
   status       SubmissionStatus @default(new_submission)
   createdAt    DateTime         @default(now()) @map("created_at")
 
@@ -229,12 +233,12 @@ model Submission {
 // --- Gate C: Account Usage ---
 
 model AccountUsage {
-  id                String  @id @default(cuid())
-  accountId         String  @unique @map("account_id")
-  submissionCount   Int     @default(0) @map("submission_count")
-  overageCount      Int     @default(0) @map("overage_count")
-  aiGenerationsCount Int    @default(0) @map("ai_generations_count")
-  usageLocked       Boolean @default(false) @map("usage_locked")
+  id                 String  @id @default(cuid())
+  accountId          String  @unique @map("account_id")
+  submissionCount    Int     @default(0) @map("submission_count")
+  overageCount       Int     @default(0) @map("overage_count")
+  aiGenerationsCount Int     @default(0) @map("ai_generations_count")
+  usageLocked        Boolean @default(false) @map("usage_locked")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -256,6 +260,23 @@ model Webhook {
 
   @@index([siteId])
   @@map("webhooks")
+}
+
+model Integration {
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id")
+  platform    String
+  status      String   @default("disconnected")
+  credentials String?
+  metadata    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, platform])
+  @@index([accountId])
+  @@map("integrations")
 }
 
 // --- Gate D: Experiment Events ---
@@ -289,7 +310,7 @@ model ExperimentEvent {
 model Notification {
   id        String    @id @default(cuid())
   accountId String    @map("account_id")
-  type      String    // experiment_completed, usage_warning, payment_failed, etc.
+  type      String // experiment_completed, usage_warning, payment_failed, etc.
   title     String
   body      String
   linkUrl   String?   @map("link_url")
@@ -334,7 +355,7 @@ model OptimizationRun {
   startedAt               DateTime              @default(now()) @map("started_at")
   completedAt             DateTime?             @map("completed_at")
 
-  campaign Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   variants OptimizationRunVariant[]
 
   @@index([campaignId])
@@ -359,7 +380,7 @@ model OptimizationRunVariant {
 model AiGenerationLog {
   id           String   @id @default(cuid())
   accountId    String   @map("account_id")
-  type         String   // form_generation, field_suggestion, copy_generation, style_suggestion, variant_generation
+  type         String // form_generation, field_suggestion, copy_generation, style_suggestion, variant_generation
   promptHash   String?  @map("prompt_hash")
   inputContext String?  @map("input_context") @db.Text
   outputSchema String?  @map("output_schema") @db.Text

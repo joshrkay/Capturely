@@ -9,49 +9,18 @@ import { CSS } from "@dnd-kit/utilities";
 import { CampaignSettingsPanel } from "./components/display-settings";
 import { StyleEditor } from "./components/style-editor";
 import { MultiStepEditor } from "./components/multi-step-editor";
+import { AiChatPanel } from "../../components/ai-chat-panel";
 import { FormPreview, type ViewportKey } from "./components/FormPreview";
 import { ViewportToggle } from "./components/ViewportToggle";
 import { ExportModal } from "./components/export-modal";
 import { VariantManagerPanel } from "./_components/VariantManagerPanel";
+import { SpamSettings } from "./components/spam-settings";
+import { UnpublishedChangesBadge } from "../../components/unpublished-changes-badge";
+import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
 import type { FieldType } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface FormField {
-  fieldId: string;
-  type: FieldType;
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  options?: Array<{ value: string; label: string }>;
-  visibilityCondition?: {
-    dependsOn: string;
-    operator: "equals" | "not_equals" | "contains" | "not_empty";
-    value?: string;
-  };
-}
-
-interface FormStyle {
-  backgroundColor: string;
-  textColor: string;
-  buttonColor: string;
-  buttonTextColor: string;
-  borderRadius: string;
-  fontFamily: string;
-  padding?: string;
-  buttonBorderRadius?: string;
-  buttonHoverColor?: string;
-  boxShadow?: string;
-}
-
-interface FormSchema {
-  fields: FormField[];
-  style: FormStyle;
-  submitLabel: string;
-  steps?: Array<{ label: string; fieldIds: string[] }>;
-  progressBarStyle?: "dots" | "bar" | "steps" | "none";
-}
 
 interface Variant {
   id: string;
@@ -74,6 +43,7 @@ interface Campaign {
   targetingJson: string | null;
   triggerJson: string | null;
   frequencyJson: string | null;
+  spamConfigJson: string | null;
   variants: Variant[];
   site: { id: string; name: string; publicKey: string };
   accountPlanKey: string;
@@ -145,12 +115,43 @@ function FieldSettingsPanel({
   allFields,
   onChange,
   onDelete,
+  campaignType,
 }: {
   field: FormField;
   allFields: FormField[];
   onChange: (updated: FormField) => void;
   onDelete: () => void;
+  campaignType?: string;
 }) {
+  const [ctaOptions, setCtaOptions] = useState<Array<{ text: string; rationale: string }>>([]);
+  const [ctaLoading, setCtaLoading] = useState(false);
+  const [ctaError, setCtaError] = useState("");
+
+  async function handleSuggestCta() {
+    setCtaLoading(true);
+    setCtaError("");
+    setCtaOptions([]);
+    try {
+      const formContext = allFields.map((f) => f.label).join(", ");
+      const res = await fetch("/api/ai/suggest-cta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignType: campaignType ?? "popup", formContext }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setCtaError((data as { error?: string }).error ?? "Failed to generate CTA options");
+        return;
+      }
+      const data = await res.json() as { options: Array<{ text: string; rationale: string }> };
+      setCtaOptions(data.options ?? []);
+    } catch {
+      setCtaError("Failed to connect to AI service");
+    } finally {
+      setCtaLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Field Settings</h3>
@@ -164,6 +165,43 @@ function FieldSettingsPanel({
           className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
       </div>
+
+      {field.type === "submit" && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Button text</label>
+            <button
+              type="button"
+              onClick={() => void handleSuggestCta()}
+              disabled={ctaLoading}
+              className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 disabled:opacity-50"
+            >
+              {ctaLoading ? "Generating…" : "Suggest CTA"}
+            </button>
+          </div>
+          {ctaError && (
+            <p className="mb-1 text-xs text-red-500">{ctaError}</p>
+          )}
+          {ctaOptions.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {ctaOptions.map((opt, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    onChange({ ...field, label: opt.text });
+                    setCtaOptions([]);
+                  }}
+                  title={opt.rationale}
+                  className="block w-full rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-left text-xs text-zinc-700 hover:border-indigo-400 hover:bg-indigo-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                >
+                  {opt.text}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {field.type !== "submit" && field.type !== "checkbox" && field.type !== "hidden" && (
         <div>
@@ -323,6 +361,23 @@ function AiCopilotPanel({
   campaignType: string;
   onApplySchema: (schema: FormSchema) => void;
 }) {
+  type AiChatMessage = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: number;
+    status?: "loading" | "success" | "error";
+    error?: string;
+    promptForRetry?: string;
+  };
+
+  const STARTER_PROMPTS = [
+    "Build a lead capture form for a coffee shop with name, email, and favorite drink.",
+    "Create a booking request form for a salon with service type, date, and notes.",
+    "Generate a waitlist form for a product launch with email and referral source.",
+    "Design a demo request form for SaaS with company size, role, and goals.",
+  ];
+
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -359,15 +414,49 @@ function AiCopilotPanel({
   const handleGenerate = async () => {
     if (!prompt.trim() || limitReached || limitIsDisabled) return;
     setLoading(true);
-    setError("");
+    const now = Date.now();
+    const assistantMessageId = retryMessageId ?? `${now}-assistant`;
+
+    if (retryMessageId) {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === retryMessageId
+            ? {
+                ...message,
+                content: "",
+                createdAt: now,
+                status: "loading",
+                error: undefined,
+              }
+            : message,
+        ),
+      );
+    } else {
+      const userMessage: AiChatMessage = {
+        id: `${now}-user`,
+        role: "user",
+        content: trimmedPrompt,
+        createdAt: now,
+      };
+      const assistantLoadingMessage: AiChatMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        createdAt: now,
+        status: "loading",
+        promptForRetry: trimmedPrompt,
+      };
+      setMessages((prev) => [...prev, userMessage, assistantLoadingMessage]);
+    }
 
     try {
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, campaignType }),
+        body: JSON.stringify({ prompt: trimmedPrompt, campaignType }),
       });
 
+      let errorText = "AI generation failed";
       if (!res.ok) {
         let apiError = "AI generation failed";
         if (res.status === 402) {
@@ -384,7 +473,20 @@ function AiCopilotPanel({
       }
 
       const data = await res.json();
-      setHistory((prev) => [...prev, { prompt, response: data.schema }]);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: "Schema applied",
+                createdAt: Date.now(),
+                status: "success",
+                error: undefined,
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
 
       // Try to parse and apply the schema
       try {
@@ -397,13 +499,36 @@ function AiCopilotPanel({
         const schema = JSON.parse(jsonStr) as FormSchema;
         onApplySchema(schema);
       } catch {
-        setError("AI returned an invalid schema. Try rephrasing your prompt.");
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  status: "error",
+                  error: "AI returned an invalid schema. Try rephrasing your prompt.",
+                  promptForRetry: trimmedPrompt,
+                }
+              : message,
+          ),
+        );
       }
 
       setPrompt("");
       await refreshBillingStatus();
     } catch {
-      setError("Failed to connect to AI service");
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                createdAt: Date.now(),
+                status: "error",
+                error: "Failed to connect to AI service",
+                promptForRetry: trimmedPrompt,
+              }
+            : message,
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -433,17 +558,66 @@ function AiCopilotPanel({
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">Describe your form and AI will generate it for you.</p>
 
-      {error && (
-        <div className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">{error}</div>
+      {messages.length === 0 && (
+        <div className="flex flex-wrap gap-2">
+          {STARTER_PROMPTS.map((starterPrompt) => (
+            <button
+              key={starterPrompt}
+              type="button"
+              onClick={() => {
+                setPrompt(starterPrompt);
+                void sendPrompt(starterPrompt);
+              }}
+              disabled={loading}
+              className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-800/70 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+            >
+              {starterPrompt}
+            </button>
+          ))}
+        </div>
       )}
 
-      <div className="max-h-48 space-y-2 overflow-y-auto">
-        {history.map((h, i) => (
-          <div key={i} className="rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-800">
-            <div className="font-medium text-zinc-700 dark:text-zinc-300">{h.prompt}</div>
-            <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema applied</div>
+      <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-zinc-200 bg-zinc-50/40 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
+        {messages.map((message) => (
+          <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs shadow-sm ${
+                message.role === "user"
+                  ? "rounded-br-sm bg-indigo-600 text-white"
+                  : "rounded-bl-sm bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              }`}
+            >
+              {message.role === "assistant" && message.status === "loading" ? (
+                <div className="flex items-center gap-1 py-1" aria-label="Assistant is typing">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.2s] dark:bg-zinc-500" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.1s] dark:bg-zinc-500" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500" />
+                </div>
+              ) : (
+                <div>{message.content}</div>
+              )}
+
+              <div className="mt-1 text-[10px] opacity-75">{formatRelativeTimestamp(message.createdAt)}</div>
+
+              {message.role === "assistant" && message.status === "error" && message.error && (
+                <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+                  <div>{message.error}</div>
+                  {message.promptForRetry && (
+                    <button
+                      type="button"
+                      onClick={() => void sendPrompt(message.promptForRetry!, message.id)}
+                      disabled={loading}
+                      className="mt-1 font-semibold underline decoration-dotted underline-offset-2 hover:text-red-800 disabled:opacity-60 dark:hover:text-red-200"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ))}
+        <div ref={bottomSentinelRef} />
       </div>
 
       <div className="flex gap-2">
@@ -451,7 +625,12 @@ function AiCopilotPanel({
           type="text"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void sendPrompt(prompt);
+            }
+          }}
           placeholder="e.g. Lead capture form for a coffee shop"
           disabled={loading}
           className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -484,13 +663,14 @@ export default function BuilderPage() {
   const [activeVariantId, setActiveVariantId] = useState<string>("");
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps">("field");
+  const [rightTab, setRightTab] = useState<"field" | "style" | "settings" | "ai" | "steps" | "spam">("field");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
   const [viewport, setViewport] = useState<ViewportKey>("desktop");
   const [displayMode, setDisplayMode] = useState<"popup" | "inline">("popup");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResponse | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -588,17 +768,54 @@ export default function BuilderPage() {
     setSelectedFieldId(null);
   }, [schema, updateSchema]);
 
-  const handleSave = async () => {
-    if (!schema || !campaign) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!schema || !campaign) return false;
     setSaving(true);
     setMessage("");
 
+    const formatValidationMessage = (data: unknown, fallbackPrefix: string) => {
+      const parsed = (typeof data === "object" && data !== null) ? data as {
+        error?: string;
+        details?: {
+          variantName?: string;
+          variantId?: string;
+          issues?: Array<{ path?: string; message?: string }>;
+          variants?: Array<{
+            variantName?: string;
+            variantId?: string;
+            issues?: Array<{ path?: string; message?: string }>;
+          }>;
+        };
+      } : null;
+
+      const variantIssues = parsed?.details?.variants?.flatMap((variant) => {
+        const variantLabel = variant.variantName ?? variant.variantId ?? "Variant";
+        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`);
+      }) ?? [];
+      const directIssues = (parsed?.details?.issues ?? []).map((issue) => {
+        const variantLabel = parsed?.details?.variantName ?? parsed?.details?.variantId ?? "Variant";
+        return `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`;
+      });
+
+      const allIssues = [...variantIssues, ...directIssues];
+      if (allIssues.length > 0) {
+        return `${fallbackPrefix}: ${allIssues.join("; ")}`;
+      }
+
+      return `${fallbackPrefix}: ${parsed?.error ?? "Request failed"}`;
+    };
+
+    let schemaSaved = false;
+    let settingsSaved = true;
+    let settingsFailureMessage = "";
+
     // Save variant schema
-    await fetch(`/api/campaigns/${id}/variants`, {
+    const schemaRes = await fetch(`/api/campaigns/${id}/variants`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ variantId: activeVariantId, schemaJson: JSON.stringify(schema) }),
     });
+    schemaSaved = schemaRes.ok;
 
     // Save campaign settings
     const updates: Record<string, unknown> = {};
@@ -607,37 +824,94 @@ export default function BuilderPage() {
     if (campaign.frequencyJson) updates.frequencyJson = campaign.frequencyJson;
 
     if (Object.keys(updates).length > 0) {
-      await fetch(`/api/campaigns/${id}`, {
+      const settingsRes = await fetch(`/api/campaigns/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      settingsSaved = settingsRes.ok;
+
+      if (!settingsRes.ok) {
+        const settingsData = await settingsRes.json().catch(() => null);
+        settingsFailureMessage = formatValidationMessage(settingsData, "Settings save failed");
+        if (schemaSaved) {
+          setMessage(settingsFailureMessage);
+        }
+      }
     }
 
-    setMessage("Draft saved");
+    if (schemaSaved && settingsSaved) {
+      setMessage("Draft saved");
+      setSaving(false);
+      setTimeout(() => setMessage(""), 2000);
+      return true;
+    }
+
+    if (!schemaSaved) {
+      const schemaData = await schemaRes.json().catch(() => null);
+      setMessage(formatValidationMessage(schemaData, "Schema save failed"));
+    }
+
+    if (schemaSaved && !settingsSaved) {
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
+
+    if (!schemaSaved && !settingsSaved) {
+      setMessage((prev) => `${prev} | ${settingsFailureMessage || "Settings save failed"}`);
+    }
+
     setSaving(false);
-    setTimeout(() => setMessage(""), 2000);
+    setTimeout(() => setMessage(""), 4000);
+    return false;
   };
 
-  const handlePublish = async (): Promise<boolean> => {
-    await handleSave();
+  const handlePublish = async (): Promise<PublishResponse> => {
+    const saveOk = await handleSave();
+    if (!saveOk) {
+      return {
+        ok: false,
+        code: "DRAFT_SAVE_FAILED",
+        error: "Failed to save draft before publish.",
+      };
+    }
     setPublishing(true);
     setMessage("");
+    setPublishResult(null);
 
     const res = await fetch(`/api/campaigns/${id}/publish`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json();
-      setMessage(`Error: ${data.error}`);
+      const response: PublishResponse = {
+        ok: false,
+        error: (data as { error?: string }).error ?? "Publish failed.",
+        code: (data as { code?: string }).code,
+        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+      };
+      setPublishResult(response);
+      if (response.preflight?.errors.length) {
+        const firstIssue = response.preflight.errors[0];
+        const variantLabel = firstIssue.variantName ? `${firstIssue.variantName}: ` : "";
+        setMessage(`Publish blocked [${firstIssue.category}] ${variantLabel}${firstIssue.message}`);
+      } else {
+        setMessage(`Error: ${response.error}`);
+      }
       setPublishing(false);
       setTimeout(() => setMessage(""), 3000);
-      return false;
+      return response;
     } else {
       setMessage("Published!");
       setCampaign((prev) => prev ? { ...prev, status: "published", hasUnpublishedChanges: false } : prev);
+      const response: PublishResponse = {
+        ok: true,
+        preflight: (data as { preflight?: PublishResponse["preflight"] }).preflight,
+      };
+      setPublishResult(response);
+      setPublishing(false);
+      setTimeout(() => setMessage(""), 3000);
+      return response;
     }
-    setPublishing(false);
-    setTimeout(() => setMessage(""), 3000);
-    return true;
   };
 
   const handleCampaignUpdate = (updates: Record<string, unknown>) => {
@@ -665,7 +939,7 @@ export default function BuilderPage() {
             {campaign.status}
           </span>
           {campaign.hasUnpublishedChanges && (
-            <span className="text-xs text-amber-600">unsaved changes</span>
+            <UnpublishedChangesBadge />
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -714,6 +988,7 @@ export default function BuilderPage() {
         onPublish={handlePublish}
         publishing={publishing}
         campaign={campaign}
+        publishResult={publishResult}
       />
 
       {/* Three-panel layout */}
@@ -793,7 +1068,7 @@ export default function BuilderPage() {
         {/* Right: Settings */}
         <div className="w-72 shrink-0 border-l border-zinc-200 bg-white p-3 overflow-y-auto dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mb-3 flex gap-1">
-            {(["field", "style", "steps", "settings", "ai"] as const).map((tab) => (
+            {(["field", "style", "steps", "settings", "spam", "ai"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -803,7 +1078,7 @@ export default function BuilderPage() {
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400"
                 }`}
               >
-                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab}
+                {tab === "ai" ? "AI" : tab === "steps" ? "Steps" : tab === "spam" ? "Spam" : tab}
               </button>
             ))}
           </div>
@@ -814,6 +1089,7 @@ export default function BuilderPage() {
               allFields={schema.fields}
               onChange={handleFieldChange}
               onDelete={() => deleteField(selectedField.fieldId)}
+              campaignType={campaign?.type}
             />
           )}
           {rightTab === "field" && !selectedField && (
@@ -833,8 +1109,11 @@ export default function BuilderPage() {
           {rightTab === "settings" && (
             <CampaignSettingsPanel campaign={campaign} onUpdate={handleCampaignUpdate} />
           )}
+          {rightTab === "spam" && (
+            <SpamSettings campaign={campaign} onUpdate={handleCampaignUpdate} />
+          )}
           {rightTab === "ai" && (
-            <AiCopilotPanel campaignType={campaign.type} onApplySchema={updateSchema} />
+            <AiChatPanel campaignType={campaign.type} onApplySchema={updateSchema} />
           )}
         </div>
       </div>
