@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { MemberRole } from "@/generated/prisma/client";
-import { canManageBilling } from "@/lib/rbac";
+import {
+  getActiveSettingsTab as getCanonicalActiveSettingsTab,
+  getVisibleSettingsTabs as getCanonicalVisibleSettingsTabs,
+  type SettingsRole,
+  type SettingsTabDefinition,
+  type SettingsTabKey,
+} from "@/lib/settings-tabs-policy";
 
 export const notificationPreferencesSchema = z.object({
   productUpdates: z.boolean(),
@@ -27,6 +33,12 @@ export const updateSettingsSchema = z
   .refine((data) => data.displayName !== undefined || data.notificationPreferences !== undefined, {
     message: "At least one setting must be provided",
   });
+
+export type UpdateSettingsInput = z.input<typeof updateSettingsSchema>;
+
+export function buildSettingsPatchPayload(input: UpdateSettingsInput): UpdateSettingsInput {
+  return input;
+}
 
 export const deleteAccountSchema = z
   .object({
@@ -68,30 +80,10 @@ export function canUpdateSettings(role: MemberRole): boolean {
   return role === MemberRole.owner || role === MemberRole.admin;
 }
 
-export function getVisibleSettingsTabs(role: MemberRole): string[] {
-  const tabs = ["profile", "notifications"];
-  if (canManageBilling(role)) {
-    tabs.push("billing");
-  }
-  if (role === MemberRole.owner) {
-    tabs.push("danger");
-  }
-  return tabs;
+export function getVisibleSettingsTabs(role: SettingsRole): SettingsTabDefinition[] {
+  return getCanonicalVisibleSettingsTabs(role);
 }
 
-export function isMemberFormDisabled(role: MemberRole): boolean {
-  return role === MemberRole.member;
-}
-
-export function isDeleteButtonEnabled(value: string): boolean {
-  return value === "DELETE";
-}
-
-export function getActiveSettingsTab(tabParam: string | null | undefined, role: MemberRole): string {
-  const visibleTabs = getVisibleSettingsTabs(role);
-  if (!tabParam) {
-    return visibleTabs[0];
-  }
-
-  return visibleTabs.includes(tabParam) ? tabParam : visibleTabs[0];
+export function getActiveSettingsTab(tab: string | undefined, role: SettingsRole): SettingsTabKey {
+  return getCanonicalActiveSettingsTab(tab, role);
 }

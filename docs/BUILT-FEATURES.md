@@ -71,12 +71,21 @@ Located: `src/lib/rbac.ts`
 | `canManageBilling(role)` | owner | Billing and plan changes (future) |
 | `canView(role)` | owner, admin, member | Read-only access |
 
-### 5. Team Management (Stories 7, 8, 9, 10)
+### 5. Settings & Team Management (Stories 7, 8, 9, 10)
 
-**Team Page** (`src/app/app/settings/team/page.tsx`):
-- Server component listing all members (userId, role, joined date)
-- "(you)" indicator for current user
-- Managers see "Invite Member" button
+**Settings UX (Canonical)** (`src/app/app/settings/page.tsx` + `src/app/app/settings/components/settings-tabs.tsx`):
+- Single settings surface at `/app/settings` with tab query routing (`?tab=...`)
+- Canonical tab map: `account`, `team`, `notifications`, `api-keys`, and `danger-zone` (owner-only)
+- Team management is rendered inside the `team` tab (member list, role badges, "(you)" indicator)
+- Legacy `/app/settings/team` route now redirects to `/app/settings?tab=team`
+
+| Tab | Allowed Roles | Allowed Actions |
+|-----|---------------|-----------------|
+| `account` | owner, admin, member | View account profile; owner/admin can update account name |
+| `team` | owner, admin, member | View team roster; owner/admin can manage invites and member roles |
+| `notifications` | owner, admin, member | View notification preferences; owner/admin can save preference changes |
+| `api-keys` | owner, admin, member | View site API keys; owner/admin can rotate/publish keys through protected APIs |
+| `danger-zone` | owner | Delete account |
 
 **Invite System:**
 - `POST /api/invites` — Create invite (email + role, 7-day expiration, dedup check)
@@ -371,7 +380,8 @@ src/lib/keys.ts                   # API key generation
 src/lib/runtime-token.ts          # Widget JWT tokens
 src/lib/manifest.ts               # Manifest builder
 src/app/app/layout.tsx            # Dashboard layout
-src/app/app/settings/team/        # Team management UI
+src/app/app/settings/page.tsx      # Canonical settings route
+src/app/app/settings/components/    # Settings tab architecture
 src/app/app/sites/                # Sites management UI
 src/app/app/submissions/          # Submissions list UI
 src/app/accept-invite/            # Public invite acceptance

@@ -19,11 +19,15 @@ export function getBuilderPath(campaignId: string) {
 export async function createCampaignFromTemplate(
   siteId: string,
   templateId: string,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  options?: { idempotencyKey?: string }
 ) {
   const res = await fetchImpl("/api/campaigns", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
+    },
     body: JSON.stringify(buildUseTemplatePayload(siteId, templateId)),
   });
 

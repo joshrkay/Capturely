@@ -7,13 +7,41 @@ import {
   generateShopifySnippet,
   generateWordPressSnippet,
 } from "@/lib/embed-utils";
+import { UnpublishedChangesBadge } from "../../../components/unpublished-changes-badge";
 
 type ExportTab = "generic" | "shopify" | "wordpress" | "gtm";
+type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
+
+interface PublishPreflightIssue {
+  code: string;
+  category: PublishPreflightCategory;
+  message: string;
+  variantId?: string;
+  variantName?: string;
+  path?: string;
+}
+
+interface PublishResult {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  failures?: Array<{
+    variantId: string | null;
+    variantName: string | null;
+    rule: string;
+    message: string;
+  }>;
+  preflight?: {
+    passed: boolean;
+    errors: PublishPreflightIssue[];
+    warnings?: PublishPreflightIssue[];
+  };
+}
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onPublish: () => Promise<boolean>;
+  onPublish: () => Promise<PublishResult>;
   publishing: boolean;
   campaign: {
     id: string;
@@ -21,6 +49,7 @@ interface ExportModalProps {
     hasUnpublishedChanges: boolean;
     site?: { publicKey?: string; id: string; name: string };
   };
+  publishResult: PublishResult | null;
 }
 
 function copyWithFallback(text: string): Promise<void> {
@@ -57,7 +86,7 @@ function copyWithFallback(text: string): Promise<void> {
   });
 }
 
-export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign }: ExportModalProps) {
+export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign, publishResult }: ExportModalProps) {
   const [activeTab, setActiveTab] = useState<ExportTab>("generic");
   const [copyState, setCopyState] = useState<Record<ExportTab, "idle" | "copied" | "error">>({
     generic: "idle",
@@ -124,7 +153,7 @@ export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign }
 
   const statusBadge = (() => {
     if (campaign.hasUnpublishedChanges) {
-      return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unpublished Changes</span>;
+      return <UnpublishedChangesBadge />;
     }
 
     if (campaign.status === "published") {
@@ -158,8 +187,8 @@ export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign }
   };
 
   const handlePublishClick = async () => {
-    const success = await onPublish();
-    if (success) {
+    const result = await onPublish();
+    if (result.ok) {
       setLastPublishedAt(new Date().toISOString());
     }
   };
@@ -242,6 +271,39 @@ export function ExportModal({ isOpen, onClose, onPublish, publishing, campaign }
               </button>
             </div>
           </>
+        )}
+
+        {publishResult?.failures && publishResult.failures.length > 0 && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-900/20 dark:text-red-200">
+            <p className="font-medium">Publish checks failed</p>
+            <ul className="mt-2 space-y-1.5">
+              {publishResult.failures.map((failure, index) => (
+                <li key={`${failure.rule}-${failure.variantId ?? "global"}-${index}`} className="leading-snug">
+                  <span className="font-medium">{failure.variantName ?? "Campaign"}</span>
+                  <span className="text-red-700/80 dark:text-red-300/80"> — {failure.message}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {publishResult?.preflight?.warnings && publishResult.preflight.warnings.length > 0 && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+            <p className="font-medium">Preflight warnings</p>
+            <ul className="mt-2 space-y-1">
+              {publishResult.preflight.warnings.map((warning, index) => (
+                <li key={`${warning.code}-${warning.variantId ?? "global"}-${index}`}>
+                  <span className="font-medium">[{warning.category}] {warning.code}</span>
+                  {" — "}
+                  <span>
+                    {warning.variantName ? `${warning.variantName}: ` : ""}
+                    {warning.message}
+                    {warning.path ? ` (${warning.path})` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <div className="mt-5 flex justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
