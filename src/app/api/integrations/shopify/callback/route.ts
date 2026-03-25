@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
-import { verifyHmac, exchangeCodeForToken, isValidShopDomain } from "@/lib/shopify";
+import { verifyHmac, exchangeCodeForToken, isValidShopDomain, injectScriptTag, listScriptTags } from "@/lib/shopify";
 
 /** GET /api/integrations/shopify/callback — Handles Shopify OAuth callback */
 export async function GET(req: NextRequest) {
@@ -49,6 +49,23 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Inject widget.js script tag into the Shopify store
+    const widgetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://app.capturely.io"}/widget.js`;
+    let scriptTagId: number | undefined;
+    try {
+      // Avoid duplicate tags — check if already installed
+      const existingTags = await listScriptTags(shop, accessToken);
+      const alreadyInstalled = existingTags.some((t) => t.src === widgetUrl);
+      if (!alreadyInstalled) {
+        const tag = await injectScriptTag(shop, accessToken, widgetUrl);
+        scriptTagId = tag.id;
+      } else {
+        scriptTagId = existingTags.find((t) => t.src === widgetUrl)?.id;
+      }
+    } catch {
+      // Script tag injection failure is non-fatal; merchant can re-install manually
+    }
+
     // Upsert integration record
     await prisma.integration.upsert({
       where: {
@@ -62,12 +79,12 @@ export async function GET(req: NextRequest) {
         platform: "shopify",
         status: "connected",
         credentials: JSON.stringify({ accessToken }),
-        metadata: JSON.stringify({ shopDomain: shop }),
+        metadata: JSON.stringify({ shopDomain: shop, scriptTagId }),
       },
       update: {
         status: "connected",
         credentials: JSON.stringify({ accessToken }),
-        metadata: JSON.stringify({ shopDomain: shop }),
+        metadata: JSON.stringify({ shopDomain: shop, scriptTagId }),
       },
     });
 

@@ -1,15 +1,8 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { withAccountContext } from "@/lib/account";
-import { SettingsTabs, type SettingsTabKey } from "./components/settings-tabs";
-
-const allowedTabs: SettingsTabKey[] = [
-  "account",
-  "team",
-  "notifications",
-  "api-keys",
-  "danger-zone",
-];
+import { getActiveSettingsTab, type SettingsRole } from "@/lib/settings-tabs-policy";
+import { SettingsTabs } from "./components/settings-tabs";
 
 type SettingsPageProps = {
   searchParams?:
@@ -67,14 +60,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   ]);
 
   const tabParam = resolvedSearchParams?.tab;
-  const initialTab: SettingsTabKey = allowedTabs.includes(tabParam as SettingsTabKey)
-    ? (tabParam as SettingsTabKey)
-    : "account";
+  const role = ctx.role as SettingsRole;
+  const initialTab = getActiveSettingsTab(tabParam, role);
 
   return (
     <SettingsTabs
       initialTab={initialTab}
-      role={ctx.role as "owner" | "admin" | "member"}
+      role={role}
       currentUserId={ctx.userId}
       account={{
         ...account,

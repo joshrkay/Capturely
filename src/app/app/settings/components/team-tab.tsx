@@ -5,6 +5,8 @@ type TeamMember = {
   createdAt: string;
 };
 
+const CANONICAL_INVITE_PATH = "/app/settings/team/invite";
+
 type TeamTabProps = {
   members: TeamMember[];
   currentUserId: string;
@@ -25,7 +27,7 @@ export function TeamTab({ members, currentUserId, role }: TeamTabProps) {
         </div>
         {isManager && (
           <a
-            href="/app/settings/team/invite"
+            href="/app/settings?tab=team#invite"
             className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             Invite Member
