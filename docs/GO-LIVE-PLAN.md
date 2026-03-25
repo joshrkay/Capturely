@@ -16,7 +16,7 @@ Capturely has **significant implementation depth** — far beyond Gate A. The co
 |-------|--------|
 | TypeScript (`tsc --noEmit`) | **PASS** — zero errors |
 | Unit Tests (114 tests, 13 files) | **PASS** — all green |
-| Production Build (`next build`) | **Needs verification** (no `.env` files present) |
+| Production Build (`next build`) | **FAILS** — `settings-tabs.tsx` imports `node:module` in client component |
 | Environment Variables | **MISSING** — no `.env.local` or `.env` file |
 | Docker Postgres | **Not running** |
 | Widget Bundle (`widget.js`) | **NOT BUILT** — no build pipeline, no dist/ output |
@@ -98,7 +98,14 @@ These are the items that **MUST** be completed before a user can go through the 
 
 ### P0 — Blockers (Cannot launch without these)
 
-#### 1. Environment Variables & Production Config
+#### 1. Fix Production Build Error
+**Effort:** 30 minutes
+**What:** `src/app/app/settings/components/settings-tabs.tsx` is a `"use client"` component that transitively imports `node:module` (a Node.js built-in). This breaks the production build. The import chain needs to be traced and the server-only dependency moved behind a dynamic import or removed from the client bundle.
+- [ ] Trace import chain in `settings-tabs.tsx` to find the `node:module` dependency
+- [ ] Refactor to remove server-only imports from client component
+- [ ] Verify `npm run build` passes
+
+#### 2. Environment Variables & Production Config
 **Effort:** 1-2 hours
 **What:** Set up `.env.local` for development and Vercel environment variables for production.
 - [ ] `DATABASE_URL` — Neon Postgres connection string
