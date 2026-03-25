@@ -39,6 +39,10 @@ function schemaValidationErrorResponse(issues: Array<{ path: string; message: st
   );
 }
 
+function variantConflictResponse(message: string, code: string, status = 409) {
+  return NextResponse.json({ error: message, code }, { status });
+}
+
 /** POST /api/campaigns/:id/variants — Add a variant (A/B testing) */
 export async function POST(
   req: NextRequest,
@@ -166,13 +170,107 @@ export async function PATCH(
       }
     }
 
+    if (rest.isControl === true) {
+      const allVariants = await prisma.$transaction(async (tx) => {
+        const target = await tx.variant.findUnique({
+          where: { id: variantId },
+          select: { id: true, campaignId: true },
+        });
+
+        if (!target) {
+          throw new Error("VARIANT_NOT_FOUND_CONFLICT");
+        }
+
+        if (target.campaignId !== id) {
+          throw new Error("VARIANT_CAMPAIGN_CONFLICT");
+        }
+
+        const siblings = await tx.variant.findMany({
+          where: { campaignId: id },
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+        });
+
+        const inCampaign = siblings.some((sibling) => sibling.id === variantId);
+        if (!inCampaign) {
+          throw new Error("VARIANT_CAMPAIGN_CONFLICT");
+        }
+
+        const nonControlCount = Math.max(0, siblings.length - 1);
+        const configuredControlTraffic = rest.trafficPercentage;
+        const controlTraffic = nonControlCount === 0
+          ? 100
+          : configuredControlTraffic !== undefined
+            ? configuredControlTraffic
+            : Math.floor(100 / siblings.length) + (100 - Math.floor(100 / siblings.length) * siblings.length);
+        const nonControlPool = Math.max(0, 100 - controlTraffic);
+        const nonControlBase = nonControlCount > 0 ? Math.floor(nonControlPool / nonControlCount) : 0;
+        let nonControlRemainder = nonControlPool - nonControlBase * nonControlCount;
+
+        await tx.variant.updateMany({
+          where: { campaignId: id },
+          data: { isControl: false },
+        });
+
+        await tx.variant.update({
+          where: { id: variantId },
+          data: {
+            ...(rest.name !== undefined && { name: rest.name }),
+            ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
+            isControl: true,
+            trafficPercentage: controlTraffic,
+            schemaVersion: { increment: 1 },
+          },
+        });
+
+        for (const sibling of siblings) {
+          if (sibling.id === variantId) continue;
+          const extra = nonControlRemainder > 0 ? 1 : 0;
+          nonControlRemainder -= extra;
+          await tx.variant.update({
+            where: { id: sibling.id },
+            data: { trafficPercentage: nonControlBase + extra },
+          });
+        }
+
+        return tx.variant.findMany({
+          where: { campaignId: id },
+          select: { id: true, name: true, trafficPercentage: true, isControl: true },
+        });
+      });
+
+      await prisma.campaign.update({
+        where: { id },
+        data: { hasUnpublishedChanges: true },
+      });
+
+      return NextResponse.json({ promotedVariantId: variantId, allVariants });
+    }
+
+    if (rest.isControl === false) {
+      return variantConflictResponse(
+        "Control demotion must be performed by promoting another variant",
+        "CONTROL_DEMOTION_FORBIDDEN",
+      );
+    }
+
+    const variantInCampaign = await prisma.variant.findFirst({
+      where: { id: variantId, campaignId: id },
+      select: { id: true },
+    });
+    if (!variantInCampaign) {
+      return variantConflictResponse(
+        "Variant is missing or does not belong to this campaign",
+        "VARIANT_CONFLICT",
+      );
+    }
+
     const variant = await prisma.variant.update({
       where: { id: variantId },
       data: {
         ...(rest.name !== undefined && { name: rest.name }),
         ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
         ...(rest.trafficPercentage !== undefined && { trafficPercentage: rest.trafficPercentage }),
-        ...(rest.isControl !== undefined && { isControl: rest.isControl }),
         schemaVersion: { increment: 1 },
       },
     });
@@ -184,6 +282,18 @@ export async function PATCH(
 
     return NextResponse.json({ variant });
   } catch (err) {
+    if (err instanceof Error && err.message === "VARIANT_NOT_FOUND_CONFLICT") {
+      return variantConflictResponse(
+        "Variant no longer exists or was deleted",
+        "VARIANT_NOT_FOUND_CONFLICT",
+      );
+    }
+    if (err instanceof Error && err.message === "VARIANT_CAMPAIGN_CONFLICT") {
+      return variantConflictResponse(
+        "Variant does not belong to this campaign",
+        "VARIANT_CAMPAIGN_CONFLICT",
+      );
+    }
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
     }
