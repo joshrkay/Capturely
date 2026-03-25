@@ -17,7 +17,7 @@ import { SpamSettings } from "./components/spam-settings";
 import { UnpublishedChangesBadge } from "../../components/unpublished-changes-badge";
 import type { FormField, FormSchema } from "./types";
 import { resolvePlan } from "@/lib/plans";
-import type { FieldType } from "@capturely/shared-forms";
+import { validateFormSchema, type FieldType, type SchemaValidationIssue } from "@capturely/shared-forms";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -768,22 +768,22 @@ export default function BuilderPage() {
         details?: {
           variantName?: string;
           variantId?: string;
-          issues?: Array<{ path?: string; message?: string }>;
+          issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
           variants?: Array<{
             variantName?: string;
             variantId?: string;
-            issues?: Array<{ path?: string; message?: string }>;
+            issues?: Array<{ path?: string; message?: string; field?: string; reason?: string }>;
           }>;
         };
       } : null;
 
       const variantIssues = parsed?.details?.variants?.flatMap((variant) => {
         const variantLabel = variant.variantName ?? variant.variantId ?? "Variant";
-        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`);
+        return (variant.issues ?? []).map((issue) => `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`);
       }) ?? [];
       const directIssues = (parsed?.details?.issues ?? []).map((issue) => {
         const variantLabel = parsed?.details?.variantName ?? parsed?.details?.variantId ?? "Variant";
-        return `${variantLabel}: ${issue.path ?? "schema"} - ${issue.message ?? "Invalid value"}`;
+        return `${variantLabel}: ${issue.field ?? issue.path ?? "schema"} - ${issue.reason ?? issue.message ?? "Invalid value"}`;
       });
 
       const allIssues = [...variantIssues, ...directIssues];
@@ -797,6 +797,20 @@ export default function BuilderPage() {
     let schemaSaved = false;
     let settingsSaved = true;
     let settingsFailureMessage = "";
+
+    const localSchemaValidation = validateFormSchema(schema, {
+      requireSubmitField: true,
+      requireEmailField: true,
+    });
+    if (!localSchemaValidation.valid) {
+      const localIssues = localSchemaValidation.errors
+        .map((issue: SchemaValidationIssue) => `${issue.field ?? issue.path}: ${issue.reason ?? issue.message}`)
+        .join("; ");
+      setMessage(`Schema save failed: ${localIssues}`);
+      setSaving(false);
+      setTimeout(() => setMessage(""), 4000);
+      return false;
+    }
 
     // Save variant schema
     const schemaRes = await fetch(`/api/campaigns/${id}/variants`, {
