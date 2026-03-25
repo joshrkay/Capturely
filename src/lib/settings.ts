@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { MemberRole } from "@/generated/prisma/client";
-import { canManageBilling } from "@/lib/rbac";
 
 export const notificationPreferencesSchema = z.object({
   productUpdates: z.boolean(),
@@ -66,32 +65,4 @@ export function parseNotificationPreferences(json: string | null | undefined): N
 
 export function canUpdateSettings(role: MemberRole): boolean {
   return role === MemberRole.owner || role === MemberRole.admin;
-}
-
-export function getVisibleSettingsTabs(role: MemberRole): string[] {
-  const tabs = ["profile", "notifications"];
-  if (canManageBilling(role)) {
-    tabs.push("billing");
-  }
-  if (role === MemberRole.owner) {
-    tabs.push("danger");
-  }
-  return tabs;
-}
-
-export function isMemberFormDisabled(role: MemberRole): boolean {
-  return role === MemberRole.member;
-}
-
-export function isDeleteButtonEnabled(value: string): boolean {
-  return value === "DELETE";
-}
-
-export function getActiveSettingsTab(tabParam: string | null | undefined, role: MemberRole): string {
-  const visibleTabs = getVisibleSettingsTabs(role);
-  if (!tabParam) {
-    return visibleTabs[0];
-  }
-
-  return visibleTabs.includes(tabParam) ? tabParam : visibleTabs[0];
 }
