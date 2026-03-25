@@ -30,6 +30,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       select: {
         id: true,
         name: true,
+        company: true,
+        timezone: true,
         planKey: true,
         paymentStatus: true,
         createdAt: true,

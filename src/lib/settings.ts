@@ -1,5 +1,19 @@
 import { z } from "zod";
 import { MemberRole } from "@/generated/prisma/client";
+
+function createIanaTimeZoneSet(): Set<string> {
+  try {
+    return new Set(Intl.supportedValuesOf("timeZone"));
+  } catch {
+    return new Set();
+  }
+}
+
+const IANA_TIME_ZONES = createIanaTimeZoneSet();
+
+export function isValidIanaTimeZone(tz: string): boolean {
+  return IANA_TIME_ZONES.has(tz);
+}
 import {
   getActiveSettingsTab as getCanonicalActiveSettingsTab,
   getVisibleSettingsTabs as getCanonicalVisibleSettingsTabs,
@@ -28,10 +42,33 @@ export const updateSettingsSchema = z
   .object({
     displayName: z.string().trim().min(1).max(100).optional(),
     notificationPreferences: notificationPreferencesSchema.partial().optional(),
+    company: z.string().max(200).transform((s) => s.trim()).optional(),
+    timezone: z.string().max(64).transform((s) => s.trim()).optional(),
   })
   .strict()
-  .refine((data) => data.displayName !== undefined || data.notificationPreferences !== undefined, {
-    message: "At least one setting must be provided",
+  .superRefine((data, ctx) => {
+    if (
+      data.displayName === undefined &&
+      data.notificationPreferences === undefined &&
+      data.company === undefined &&
+      data.timezone === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one setting must be provided",
+      });
+    }
+    if (
+      data.timezone !== undefined &&
+      data.timezone !== "" &&
+      !isValidIanaTimeZone(data.timezone)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["timezone"],
+        message: "Invalid IANA timezone",
+      });
+    }
   });
 
 export type UpdateSettingsInput = z.input<typeof updateSettingsSchema>;

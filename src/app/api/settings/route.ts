@@ -18,6 +18,8 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        company: true,
+        timezone: true,
         notificationPreferencesJson: true,
       },
     });
@@ -26,6 +28,8 @@ export async function GET() {
       settings: {
         accountId: account.id,
         displayName: account.name,
+        company: account.company,
+        timezone: account.timezone,
         notificationPreferences: parseNotificationPreferences(account.notificationPreferencesJson),
       },
     });
@@ -70,10 +74,18 @@ export async function PATCH(req: NextRequest) {
               ),
             }
           : {}),
+        ...(parsed.data.company !== undefined
+          ? { company: parsed.data.company === "" ? null : parsed.data.company }
+          : {}),
+        ...(parsed.data.timezone !== undefined
+          ? { timezone: parsed.data.timezone === "" ? null : parsed.data.timezone }
+          : {}),
       },
       select: {
         id: true,
         name: true,
+        company: true,
+        timezone: true,
         notificationPreferencesJson: true,
       },
     });
@@ -82,6 +94,8 @@ export async function PATCH(req: NextRequest) {
       settings: {
         accountId: updated.id,
         displayName: updated.name,
+        company: updated.company,
+        timezone: updated.timezone,
         notificationPreferences: parseNotificationPreferences(updated.notificationPreferencesJson),
       },
     });
