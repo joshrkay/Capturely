@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { StripeConfigurationError, verifyWebhookSignature } from "@/lib/stripe";
-import { sendPaymentFailedEmail, sendAccountSuspendedEmail } from "@/lib/email";
+import { sendPaymentFailedEmail, sendPaymentResumedEmail } from "@/lib/email";
 import Stripe from "stripe";
 
 /** POST /api/stripe/webhook — Handle Stripe webhook events */
