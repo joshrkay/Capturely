@@ -18,6 +18,10 @@ interface Site {
   primaryDomain: string;
 }
 
+type SitesApiResponse = {
+  sites?: Site[];
+};
+
 interface FormSchema {
   fields: Array<Record<string, unknown>>;
   style: Record<string, unknown>;
@@ -56,6 +60,19 @@ function extractSchemaFromAiResponse(schemaText: string): FormSchema {
     jsonStr = jsonMatch[1];
   }
   return JSON.parse(jsonStr) as FormSchema;
+}
+
+export function parseSitesApiResponse(data: unknown): SitesApiResponse {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Invalid sites payload");
+  }
+
+  const payload = data as { sites?: unknown };
+  if (payload.sites !== undefined && !Array.isArray(payload.sites)) {
+    throw new Error("Invalid sites payload");
+  }
+
+  return { sites: payload.sites as Site[] | undefined };
 }
 
 function AiChatPanel({
@@ -180,10 +197,20 @@ export default function NewCampaignPage() {
 
   useEffect(() => {
     fetch("/api/sites")
-      .then((r) => r.json())
-      .then((data) => {
-        setSites(data);
-        if (data.length > 0) setSiteId(data[0].id);
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error("Failed to load sites.");
+        }
+        return r.json();
+      })
+      .then((rawData) => {
+        const data = parseSitesApiResponse(rawData);
+        setSites(data.sites ?? []);
+        if ((data.sites ?? []).length > 0) setSiteId((data.sites ?? [])[0].id);
+      })
+      .catch(() => {
+        setSites([]);
+        setError("Failed to load sites. Please refresh and try again.");
       });
   }, []);
 
