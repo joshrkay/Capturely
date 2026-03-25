@@ -3,20 +3,40 @@
 import { FormEvent, useState } from "react";
 
 type InviteRole = "admin" | "member";
+type SubmitState = "idle" | "submitting" | "success" | "error";
 
 export default function InviteTeamMemberPage() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<InviteRole>("member");
-  const [status, setStatus] = useState<"idle" | "submitting" | "submitted">("idle");
+  const [status, setStatus] = useState<SubmitState>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("submitting");
+    setErrorMessage(null);
 
-    // Placeholder until backend invite endpoint is wired.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      const response = await fetch("/api/invites", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, role }),
+      });
 
-    setStatus("submitted");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Failed to create invite");
+      }
+
+      setStatus("success");
+      setEmail("");
+      setRole("member");
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to create invite");
+    }
   }
 
   return (
@@ -75,10 +95,13 @@ export default function InviteTeamMemberPage() {
           {status === "submitting" ? "Sending Invite..." : "Send Invite"}
         </button>
 
-        {status === "submitted" && (
+        {status === "success" && (
           <p className="text-sm text-emerald-600 dark:text-emerald-400">
-            Invite queued. The backend delivery endpoint will be connected next.
+            Invite created successfully.
           </p>
+        )}
+        {status === "error" && errorMessage && (
+          <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
         )}
       </form>
     </div>

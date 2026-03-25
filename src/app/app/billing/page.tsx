@@ -105,7 +105,7 @@ export default function BillingPage() {
       });
       const data = await res.json();
       if (data.url) {
-        window.location.href = data.url;
+        window.location.assign(data.url);
       } else {
         setUpgrading(null);
       }
@@ -118,7 +118,7 @@ export default function BillingPage() {
     const res = await fetch("/api/billing/portal", { method: "POST" });
     const data = await res.json();
     if (data.url) {
-      window.location.href = data.url;
+      window.location.assign(data.url);
     }
   };
 

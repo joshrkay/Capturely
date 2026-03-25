@@ -43,6 +43,7 @@ export function SpamSettings({ campaign, onUpdate }: SpamSettingsProps) {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfig(parseConfig(campaign.spamConfigJson));
   }, [campaign.spamConfigJson]);
 
