@@ -4,8 +4,42 @@ import { AccountContextError, withAccountContext } from "@/lib/account";
 import {
   canUpdateSettings,
   parseNotificationPreferences,
+  serializeNotificationPreferences,
   updateSettingsSchema,
 } from "@/lib/settings";
+
+/** GET /api/settings */
+export async function GET() {
+  try {
+    const ctx = await withAccountContext();
+
+    const account = await prisma.account.findUniqueOrThrow({
+      where: { id: ctx.accountId },
+      select: {
+        id: true,
+        name: true,
+        notificationPreferencesJson: true,
+      },
+    });
+
+    return NextResponse.json({
+      settings: {
+        accountId: account.id,
+        displayName: account.name,
+        notificationPreferences: parseNotificationPreferences(account.notificationPreferencesJson),
+      },
+    });
+  } catch (error) {
+    if (error instanceof AccountContextError) {
+      return NextResponse.json(
+        { error: error.message, code: "AUTH_ERROR" },
+        { status: error.statusCode }
+      );
+    }
+
+    throw error;
+  }
+}
 
 /** PATCH /api/settings */
 export async function PATCH(req: NextRequest) {
@@ -29,10 +63,18 @@ export async function PATCH(req: NextRequest) {
       where: { id: ctx.accountId },
       data: {
         ...(parsed.data.displayName !== undefined ? { name: parsed.data.displayName } : {}),
+        ...(parsed.data.notificationPreferences !== undefined
+          ? {
+              notificationPreferencesJson: serializeNotificationPreferences(
+                parsed.data.notificationPreferences
+              ),
+            }
+          : {}),
       },
       select: {
         id: true,
         name: true,
+        notificationPreferencesJson: true,
       },
     });
 
@@ -40,11 +82,7 @@ export async function PATCH(req: NextRequest) {
       settings: {
         accountId: updated.id,
         displayName: updated.name,
-        notificationPreferences: parseNotificationPreferences(
-          parsed.data.notificationPreferences
-            ? JSON.stringify(parsed.data.notificationPreferences)
-            : null
-        ),
+        notificationPreferences: parseNotificationPreferences(updated.notificationPreferencesJson),
       },
     });
   } catch (error) {
