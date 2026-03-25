@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { verifyWebhookSignature } from "@/lib/stripe";
-import { sendPaymentFailedEmail } from "@/lib/email";
+import { sendPaymentFailedEmail, sendPaymentResumedEmail } from "@/lib/email";
 import Stripe from "stripe";
 
 /** POST /api/stripe/webhook — Handle Stripe webhook events */
@@ -139,33 +139,50 @@ export async function POST(req: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice;
       const account = await prisma.account.findFirst({
         where: { stripeCustomerId: invoice.customer as string },
+        select: { id: true, paymentStatus: true, name: true },
       });
-      if (account) {
-        await prisma.account.update({
-          where: { id: account.id },
+      if (!account) {
+        break;
+      }
+
+      const wasSuspendedOrPastDue =
+        account.paymentStatus === "past_due" || account.paymentStatus === "suspended";
+
+      await prisma.account.update({
+        where: { id: account.id },
+        data: {
+          paymentStatus: "active",
+          paymentGraceUntil: null,
+        },
+      });
+
+      // Reset usage on billing cycle renewal
+      await prisma.accountUsage.upsert({
+        where: { accountId: account.id },
+        create: { accountId: account.id, submissionCount: 0, overageCount: 0, aiGenerationsCount: 0, usageLocked: false },
+        update: { submissionCount: 0, overageCount: 0, aiGenerationsCount: 0, usageLocked: false },
+      });
+
+      if (wasSuspendedOrPastDue) {
+        await prisma.notification.create({
           data: {
-            paymentStatus: "active",
-            paymentGraceUntil: null,
+            accountId: account.id,
+            type: "payment_resumed",
+            title: "Payment successful",
+            body: "Your payment has been processed. Full access has been restored.",
+            linkUrl: "/app/billing",
           },
         });
 
-        // Reset usage on billing cycle renewal
-        await prisma.accountUsage.upsert({
-          where: { accountId: account.id },
-          create: { accountId: account.id, submissionCount: 0, overageCount: 0, aiGenerationsCount: 0, usageLocked: false },
-          update: { submissionCount: 0, overageCount: 0, aiGenerationsCount: 0, usageLocked: false },
-        });
-
-        if (account.paymentStatus === "past_due" || account.paymentStatus === "suspended") {
-          await prisma.notification.create({
-            data: {
-              accountId: account.id,
-              type: "payment_resumed",
-              title: "Payment successful",
-              body: "Your payment has been processed. Full access has been restored.",
-              linkUrl: "/app/billing",
-            },
-          });
+        const resumedTo = await getAccountOwnerEmail(account.id);
+        if (!resumedTo) {
+          console.error("[stripe webhook] payment resumed: no owner email for account", { accountId: account.id });
+        } else {
+          try {
+            await sendPaymentResumedEmail(resumedTo, account.name);
+          } catch {
+            // Email sending is best-effort
+          }
         }
       }
       break;
