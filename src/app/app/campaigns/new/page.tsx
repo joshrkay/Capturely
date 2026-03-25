@@ -11,16 +11,7 @@ import {
   createCampaignFromTemplate,
   getBuilderPath,
 } from "./template-utils";
-
-interface Site {
-  id: string;
-  name: string;
-  primaryDomain: string;
-}
-
-type SitesApiResponse = {
-  sites?: Site[];
-};
+import { type Site, parseSitesApiResponse } from "./parse-sites-api";
 
 interface FormSchema {
   fields: Array<Record<string, unknown>>;
@@ -60,19 +51,6 @@ function extractSchemaFromAiResponse(schemaText: string): FormSchema {
     jsonStr = jsonMatch[1];
   }
   return JSON.parse(jsonStr) as FormSchema;
-}
-
-export function parseSitesApiResponse(data: unknown): SitesApiResponse {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("Invalid sites payload");
-  }
-
-  const payload = data as { sites?: unknown };
-  if (payload.sites !== undefined && !Array.isArray(payload.sites)) {
-    throw new Error("Invalid sites payload");
-  }
-
-  return { sites: payload.sites as Site[] | undefined };
 }
 
 function AiChatPanel({
