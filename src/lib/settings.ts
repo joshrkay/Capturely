@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { MemberRole } from "@/generated/prisma/client";
+import {
+  getActiveSettingsTab as getCanonicalActiveSettingsTab,
+  getVisibleSettingsTabs as getCanonicalVisibleSettingsTabs,
+  type SettingsRole,
+  type SettingsTabDefinition,
+  type SettingsTabKey,
+} from "@/lib/settings-tabs-policy";
 
 /** True if `tz` is a non-empty identifier accepted by the runtime as an IANA time zone. */
 export function isValidIanaTimeZone(tz: string): boolean {
@@ -13,13 +19,6 @@ export function isValidIanaTimeZone(tz: string): boolean {
     return false;
   }
 }
-import {
-  getActiveSettingsTab as getCanonicalActiveSettingsTab,
-  getVisibleSettingsTabs as getCanonicalVisibleSettingsTabs,
-  type SettingsRole,
-  type SettingsTabDefinition,
-  type SettingsTabKey,
-} from "@/lib/settings-tabs-policy";
 
 export const notificationPreferencesSchema = z.object({
   productUpdates: z.boolean(),
