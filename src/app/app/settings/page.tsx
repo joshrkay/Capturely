@@ -5,13 +5,7 @@ import { getActiveSettingsTab, type SettingsRole } from "@/lib/settings-tabs-pol
 import { SettingsTabs } from "./components/settings-tabs";
 
 type SettingsPageProps = {
-  searchParams?:
-    | {
-        tab?: string;
-      }
-    | Promise<{
-        tab?: string;
-      }>;
+  searchParams?: Promise<{ tab?: string }>;
 };
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
@@ -22,7 +16,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     redirect("/sign-in");
   }
 
-  const resolvedSearchParams = await Promise.resolve(searchParams ?? {});
+  const resolvedSearchParams = searchParams ? await searchParams : {};
 
   const [account, members, sites] = await Promise.all([
     prisma.account.findUniqueOrThrow({

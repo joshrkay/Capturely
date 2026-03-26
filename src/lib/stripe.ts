@@ -3,14 +3,31 @@
  */
 import Stripe from "stripe";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is required");
+let _stripe: Stripe | null = null;
+
+/** Thrown when Stripe or webhook env is missing at runtime (lazy init). */
+export class StripeConfigurationError extends Error {
+  readonly code = "STRIPE_NOT_CONFIGURED" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "StripeConfigurationError";
+  }
 }
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2026-02-25.clover",
-  typescript: true,
-});
+export function getStripeClient(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) {
+      throw new StripeConfigurationError("STRIPE_SECRET_KEY is not configured");
+    }
+    _stripe = new Stripe(key, {
+      apiVersion: "2026-02-25.clover",
+      typescript: true,
+    });
+  }
+  return _stripe;
+}
 
 /** Stripe price IDs mapped to plan keys */
 const PLAN_PRICE_MAP: Record<string, string> = {
@@ -49,6 +66,7 @@ export async function createCheckoutSession(params: {
     sessionParams.customer = params.customerId;
   }
 
+  const stripe = getStripeClient();
   const session = await stripe.checkout.sessions.create(sessionParams);
   return session.url ?? "";
 }
@@ -57,6 +75,7 @@ export async function createBillingPortalSession(params: {
   customerId: string;
   returnUrl: string;
 }): Promise<string> {
+  const stripe = getStripeClient();
   const session = await stripe.billingPortal.sessions.create({
     customer: params.customerId,
     return_url: params.returnUrl,
@@ -70,7 +89,8 @@ export async function verifyWebhookSignature(
 ): Promise<Stripe.Event> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    throw new Error("STRIPE_WEBHOOK_SECRET is required");
+    throw new StripeConfigurationError("STRIPE_WEBHOOK_SECRET is not configured");
   }
+  const stripe = getStripeClient();
   return stripe.webhooks.constructEvent(payload, signature, webhookSecret);
 }

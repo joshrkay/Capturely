@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSitesApiResponse } from "../page";
+import { parseSitesApiResponse } from "../parse-sites-api";
 
 describe("parseSitesApiResponse", () => {
   it("accepts payloads with a sites array", () => {

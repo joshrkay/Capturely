@@ -112,8 +112,8 @@ export function parseNotificationPreferences(json: string | null | undefined): N
   }
 }
 
-export function canUpdateSettings(role: MemberRole): boolean {
-  return role === MemberRole.owner || role === MemberRole.admin;
+export function canUpdateSettings(role: SettingsRole): boolean {
+  return role === "owner" || role === "admin";
 }
 
 export function getVisibleSettingsTabs(role: SettingsRole): SettingsTabDefinition[] {
