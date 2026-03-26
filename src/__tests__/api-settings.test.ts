@@ -51,6 +51,8 @@ describe("GET /api/settings", () => {
     mockAccountFindUniqueOrThrow.mockResolvedValue({
       id: "acc_1",
       name: "Acme",
+      company: "Widgets Inc",
+      timezone: "America/New_York",
       notificationPreferencesJson: JSON.stringify({ weeklyDigest: true, productUpdates: false }),
     });
 
@@ -61,6 +63,8 @@ describe("GET /api/settings", () => {
       settings: {
         accountId: "acc_1",
         displayName: "Acme",
+        company: "Widgets Inc",
+        timezone: "America/New_York",
         notificationPreferences: {
           productUpdates: false,
           weeklyDigest: true,
@@ -81,6 +85,8 @@ describe("PATCH /api/settings", () => {
     mockAccountUpdate.mockResolvedValue({
       id: "acc_1",
       name: "Acme",
+      company: null,
+      timezone: null,
       notificationPreferencesJson: null,
     });
 
@@ -148,6 +154,8 @@ describe("PATCH /api/settings", () => {
     mockAccountUpdate.mockResolvedValue({
       id: "acc_scope",
       name: "Scoped",
+      company: null,
+      timezone: null,
       notificationPreferencesJson: null,
     });
 
@@ -175,6 +183,8 @@ describe("PATCH /api/settings", () => {
     mockAccountUpdate.mockResolvedValue({
       id: "acc_2",
       name: "Acme",
+      company: null,
+      timezone: null,
       notificationPreferencesJson: JSON.stringify({
         weeklyDigest: true,
         productUpdates: false,
@@ -208,6 +218,8 @@ describe("PATCH /api/settings", () => {
       settings: {
         accountId: "acc_2",
         displayName: "Acme",
+        company: null,
+        timezone: null,
         notificationPreferences: {
           productUpdates: false,
           weeklyDigest: true,
@@ -216,6 +228,93 @@ describe("PATCH /api/settings", () => {
         },
       },
     });
+  });
+
+  it("persists company and timezone and clears when empty strings", async () => {
+    mockWithAccountContext.mockResolvedValue({
+      accountId: "acc_3",
+      role: MemberRole.owner,
+    });
+
+    mockAccountUpdate.mockResolvedValue({
+      id: "acc_3",
+      name: "Acme",
+      company: "Co",
+      timezone: "UTC",
+      notificationPreferencesJson: null,
+    });
+
+    let res = await PATCH(
+      new Request("http://localhost/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: "Acme",
+          company: "Co",
+          timezone: "UTC",
+        }),
+      }) as never
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockAccountUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: "Acme",
+          company: "Co",
+          timezone: "UTC",
+        }),
+      })
+    );
+
+    mockAccountUpdate.mockResolvedValue({
+      id: "acc_3",
+      name: "Acme",
+      company: null,
+      timezone: null,
+      notificationPreferencesJson: null,
+    });
+
+    res = await PATCH(
+      new Request("http://localhost/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: "Acme",
+          company: "",
+          timezone: "",
+        }),
+      }) as never
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockAccountUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          company: null,
+          timezone: null,
+        }),
+      })
+    );
+  });
+
+  it("returns 400 for invalid timezone", async () => {
+    mockWithAccountContext.mockResolvedValue({
+      accountId: "acc_1",
+      role: MemberRole.owner,
+    });
+
+    const res = await PATCH(
+      new Request("http://localhost/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: "Acme",
+          timezone: "NotA/RealTimezone",
+        }),
+      }) as never
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(mockAccountUpdate).not.toHaveBeenCalled();
   });
 });
 
