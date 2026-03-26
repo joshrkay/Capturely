@@ -11,16 +11,7 @@ import {
   createCampaignFromTemplate,
   getBuilderPath,
 } from "./template-utils";
-
-interface Site {
-  id: string;
-  name: string;
-  primaryDomain: string;
-}
-
-type SitesApiResponse = {
-  sites?: Site[];
-};
+import { type Site, parseSitesApiResponse } from "./parse-sites-api";
 
 interface FormSchema {
   fields: Array<Record<string, unknown>>;

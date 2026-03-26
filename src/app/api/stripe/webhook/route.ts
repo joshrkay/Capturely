@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAccountOwnerEmail } from "@/lib/account-owner-email";
-import { verifyWebhookSignature } from "@/lib/stripe";
+import { StripeConfigurationError, verifyWebhookSignature } from "@/lib/stripe";
 import { sendPaymentFailedEmail, sendPaymentResumedEmail } from "@/lib/email";
 import Stripe from "stripe";
 
@@ -16,7 +16,13 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
   try {
     event = await verifyWebhookSignature(body, signature);
-  } catch {
+  } catch (err) {
+    if (err instanceof StripeConfigurationError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
