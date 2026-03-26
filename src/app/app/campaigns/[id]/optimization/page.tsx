@@ -27,6 +27,9 @@ interface Campaign {
   name: string;
   autoOptimize: boolean;
   optimizationStatus: string;
+  optimizationGoalText: string | null;
+  optimizationGoalKind: string;
+  optimizationGoalFieldKey: string | null;
 }
 
 export default function OptimizationPage() {
@@ -92,6 +95,24 @@ export default function OptimizationPage() {
       </div>
 
       {/* Status + Toggle */}
+      <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Optimization goal</div>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          {campaign.optimizationGoalText?.trim()
+            ? campaign.optimizationGoalText
+            : "Not set — add a goal in campaign settings or when creating with AI."}
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Type: <span className="font-mono">{campaign.optimizationGoalKind}</span>
+          {campaign.optimizationGoalFieldKey ? (
+            <>
+              {" "}
+              · Field: <span className="font-mono">{campaign.optimizationGoalFieldKey}</span>
+            </>
+          ) : null}
+        </p>
+      </div>
+
       <div className="mb-6 flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex items-center gap-4">
           <div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getExperimentResults } from "@/lib/growthbook";
+import { republishSiteManifest } from "@/lib/manifest-publish";
 import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
 import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { sendExperimentCompletedEmail } from "@/lib/email";
@@ -81,23 +82,20 @@ export async function POST(req: NextRequest) {
       });
     });
 
-    // Republish site manifest with new control variant
+    // Republish site manifest with new control variant (must match widget CDN)
     try {
-      const site = await prisma.site.findFirst({
-        where: { campaigns: { some: { id: run.campaignId } } },
-        include: {
-          campaigns: {
-            where: { status: "published" },
-            include: { variants: true },
-          },
-        },
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: run.campaignId },
+        select: { siteId: true },
       });
-      if (site) {
-        const manifest = buildManifest(site);
-        await writeManifestToDisk(site.publicKey, manifest);
+      if (campaign) {
+        const pub = await republishSiteManifest(campaign.siteId);
+        if (!pub.ok) {
+          console.error("[growthbook webhook] manifest republish returned not ok", { campaignId: run.campaignId });
+        }
       }
-    } catch {
-      // Manifest publish failure is non-fatal — log and continue
+    } catch (err) {
+      console.error("[growthbook webhook] manifest republish failed", err);
     }
 
     // Notify account owner(s) about the winner

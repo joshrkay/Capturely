@@ -46,6 +46,8 @@ export function buildFormGenerationUserPrompt(params: {
   industry?: string;
   siteUrl?: string;
   existingFields?: string;
+  /** When set, align field copy and structure to this optimization intent */
+  optimizationGoalBlock?: string;
 }): string {
   return (
     params.prompt
@@ -53,5 +55,6 @@ export function buildFormGenerationUserPrompt(params: {
     + (params.industry ? `\nIndustry: ${params.industry}` : "")
     + (params.siteUrl ? `\nSite URL: ${params.siteUrl}` : "")
     + (params.existingFields ? `\nExisting fields to keep: ${params.existingFields}` : "")
+    + (params.optimizationGoalBlock ? `\n\n---\n${params.optimizationGoalBlock}` : "")
   );
 }

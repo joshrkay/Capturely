@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canView } from "@/lib/rbac";
+import {
+  goalMetricDescription,
+  goalMetricLabel,
+  submissionMatchesGoal,
+} from "@/lib/optimization-goal";
 
 /** GET /api/campaigns/:id/analytics — Per-campaign analytics */
 export async function GET(
@@ -60,6 +65,32 @@ export async function GET(
     const totalConversions = variantMetrics.reduce((sum, v) => sum + v.conversions, 0);
     const totalSubmissions = variantMetrics.reduce((sum, v) => sum + v.submissions, 0);
 
+    const goalInput = {
+      kind: campaign.optimizationGoalKind,
+      text: campaign.optimizationGoalText,
+      fieldKey: campaign.optimizationGoalFieldKey,
+    };
+
+    const recentSubmissions = await prisma.submission.findMany({
+      where: {
+        campaignId: id,
+        createdAt: { gte: since },
+        status: { not: "spam" },
+      },
+      select: { fieldsJson: true },
+      take: 5000,
+    });
+
+    let goalAlignedSubmissions = 0;
+    for (const row of recentSubmissions) {
+      try {
+        const fields = JSON.parse(row.fieldsJson) as Record<string, string>;
+        if (submissionMatchesGoal(goalInput, fields)) goalAlignedSubmissions += 1;
+      } catch {
+        // skip malformed
+      }
+    }
+
     return NextResponse.json({
       campaignId: id,
       campaignName: campaign.name,
@@ -69,6 +100,14 @@ export async function GET(
         conversions: totalConversions,
         submissions: totalSubmissions,
         conversionRate: totalImpressions > 0 ? Math.round((totalConversions / totalImpressions) * 10000) / 100 : 0,
+      },
+      optimizationGoal: {
+        kind: goalInput.kind,
+        text: goalInput.text,
+        fieldKey: goalInput.fieldKey,
+        metricLabel: goalMetricLabel(goalInput),
+        metricDescription: goalMetricDescription(goalInput),
+        goalAlignedSubmissions,
       },
       variants: variantMetrics,
     });

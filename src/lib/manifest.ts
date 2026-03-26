@@ -1,8 +1,8 @@
-import type { SiteManifestV1, ManifestCampaign, FormSchema } from "@capturely/shared-forms";
+import type { SiteManifestV1, ManifestCampaign, FormSchema, ManifestCampaignExperiment } from "@capturely/shared-forms";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-interface SiteWithCampaigns {
+export interface SiteWithCampaigns {
   id: string;
   publicKey: string;
   campaigns?: Array<{
@@ -14,8 +14,28 @@ interface SiteWithCampaigns {
     variants: Array<{
       id: string;
       schemaJson: string;
+      trafficPercentage: number;
     }>;
+    optimizationRuns?: Array<{ id: string; status: string }>;
   }>;
+}
+
+function buildCampaignExperiment(
+  campaign: NonNullable<SiteWithCampaigns["campaigns"]>[number]
+): ManifestCampaignExperiment | undefined {
+  const weights: Record<string, number> = {};
+  for (const v of campaign.variants) {
+    weights[v.id] = v.trafficPercentage;
+  }
+  const positive = Object.entries(weights).filter(([, w]) => w > 0);
+  if (positive.length <= 1) return undefined;
+
+  const run = campaign.optimizationRuns?.[0];
+  const trackingKey = run
+    ? `capturely_opt_${campaign.id}_${run.id}`
+    : `capturely_campaign_${campaign.id}`;
+
+  return { trackingKey, variantWeights: weights };
 }
 
 /**
@@ -32,6 +52,8 @@ export function buildManifest(site: SiteWithCampaigns): SiteManifestV1 {
       }
     }
 
+    const experiment = buildCampaignExperiment(campaign);
+
     return {
       campaignId: campaign.id,
       type: campaign.type as "popup" | "inline",
@@ -39,6 +61,7 @@ export function buildManifest(site: SiteWithCampaigns): SiteManifestV1 {
       trigger: campaign.triggerJson ? JSON.parse(campaign.triggerJson) : { type: "immediate" },
       frequency: campaign.frequencyJson ? JSON.parse(campaign.frequencyJson) : undefined,
       variants,
+      ...(experiment ? { experiment } : {}),
     };
   });
 
@@ -52,16 +75,17 @@ export function buildManifest(site: SiteWithCampaigns): SiteManifestV1 {
 }
 
 /**
- * Write the manifest JSON to the local dev "CDN" directory.
- * In production, this would write to a real CDN/storage.
+ * Write the manifest JSON under `public/manifests` or `CAPTURELY_MANIFEST_DIR` when set (e.g. mounted volume / CI artifact).
  */
 export async function writeManifestToDisk(
   publicKey: string,
   manifest: SiteManifestV1
 ): Promise<string> {
-  const dir = join(process.cwd(), "public", "manifests");
-  await mkdir(dir, { recursive: true });
-  const filePath = join(dir, `${publicKey}.json`);
+  const base =
+    process.env.CAPTURELY_MANIFEST_DIR?.trim() ||
+    join(process.cwd(), "public", "manifests");
+  await mkdir(base, { recursive: true });
+  const filePath = join(base, `${publicKey}.json`);
   await writeFile(filePath, JSON.stringify(manifest, null, 2), "utf-8");
   return filePath;
 }

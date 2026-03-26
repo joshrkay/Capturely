@@ -11,12 +11,13 @@
  * 5. On submit: request token, POST submission
  */
 
-import type { SiteManifestV1, ManifestCampaign, FormSchema } from "@capturely/shared-forms";
+import type { SiteManifestV1, ManifestCampaign } from "@capturely/shared-forms";
 import { matchesTargeting } from "./targeting";
 import { setupTrigger } from "./triggers";
 import { shouldShow, recordShow } from "./frequency";
 import { createPopup } from "./popup";
 import { renderForm } from "./form-renderer";
+import { selectVariantForCampaign } from "./variant-assignment";
 
 let initialized = false;
 
@@ -77,6 +78,41 @@ async function requestToken(baseUrl: string, publicKey: string): Promise<string 
   }
 }
 
+function getOrCreateVisitorId(): string {
+  try {
+    const key = "capturely_vid";
+    let v = localStorage.getItem(key);
+    if (!v) {
+      v = generateSubmissionId();
+      localStorage.setItem(key, v);
+    }
+    return v;
+  } catch {
+    return generateSubmissionId();
+  }
+}
+
+async function trackImpression(
+  baseUrl: string,
+  payload: {
+    visitorId: string;
+    experimentKey: string;
+    variationId: string;
+    campaignId: string;
+    siteId: string;
+  }
+): Promise<void> {
+  try {
+    await fetch(`${baseUrl}/api/runtime/impression`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // best-effort analytics
+  }
+}
+
 async function submitForm(
   baseUrl: string,
   token: string,
@@ -86,6 +122,8 @@ async function submitForm(
     variantId: string;
     submissionId: string;
     fields: Record<string, string>;
+    visitorId?: string;
+    experimentId?: string;
   }
 ): Promise<boolean> {
   try {
@@ -103,17 +141,12 @@ async function submitForm(
   }
 }
 
-function selectVariant(campaign: ManifestCampaign): { variantId: string; schema: FormSchema } | null {
-  const variantIds = Object.keys(campaign.variants);
-  if (variantIds.length === 0) return null;
-
-  // For now, always select the first variant (control).
-  // GrowthBook SDK will handle proper variant assignment in Gate D.
-  const variantId = variantIds[0];
-  return { variantId, schema: campaign.variants[variantId] };
-}
-
-function handleCampaign(baseUrl: string, publicKey: string, campaign: ManifestCampaign): () => void {
+function handleCampaign(
+  baseUrl: string,
+  publicKey: string,
+  siteId: string,
+  campaign: ManifestCampaign
+): () => void {
   const currentUrl = window.location.href;
 
   if (!matchesTargeting(campaign.targeting, currentUrl)) {
@@ -125,8 +158,19 @@ function handleCampaign(baseUrl: string, publicKey: string, campaign: ManifestCa
   }
 
   const cleanup = setupTrigger(campaign.trigger, () => {
-    const selected = selectVariant(campaign);
+    const visitorId = getOrCreateVisitorId();
+    const selected = selectVariantForCampaign(campaign, visitorId);
     if (!selected) return;
+
+    if (selected.experimentKey) {
+      void trackImpression(baseUrl, {
+        visitorId,
+        experimentKey: selected.experimentKey,
+        variationId: selected.variantId,
+        campaignId: campaign.campaignId,
+        siteId,
+      });
+    }
 
     recordShow(campaign.campaignId);
 
@@ -145,6 +189,8 @@ function handleCampaign(baseUrl: string, publicKey: string, campaign: ManifestCa
         variantId: selected.variantId,
         submissionId,
         fields,
+        visitorId,
+        experimentId: selected.experimentKey,
       });
     };
 
@@ -185,7 +231,7 @@ function init() {
 
     const cleanups: Array<() => void> = [];
     for (const campaign of manifest.campaigns) {
-      cleanups.push(handleCampaign(baseUrl, publicKey, campaign));
+      cleanups.push(handleCampaign(baseUrl, publicKey, manifest.siteId, campaign));
     }
 
     // Expose cleanup for SPA navigation
