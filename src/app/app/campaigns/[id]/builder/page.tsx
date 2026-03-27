@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -48,6 +49,12 @@ interface Campaign {
   accountPlanKey: string;
 }
 
+interface BillingStatus {
+  limits: {
+    aiGenerationsPerMonth: number | null;
+  };
+  usage: {
+    aiGenerationsCount: number;
 type PublishPreflightCategory = "schema" | "variants" | "control" | "traffic_sum" | "site" | "public_key";
 
 interface PublishPreflightIssue {
@@ -398,33 +405,39 @@ function AiCopilotPanel({
 
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<AiChatMessage[]>([]);
-  const [relativeNow, setRelativeNow] = useState(Date.now());
-  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState("");
+  const [history, setHistory] = useState<Array<{ prompt: string; response: string }>>([]);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setRelativeNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
+  const refreshBillingStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/status");
+      if (!res.ok) return;
+      const data = await res.json() as BillingStatus;
+      setBilling(data);
+    } catch {
+      // ignore billing status failures; generation endpoint still enforces limits
+    }
   }, []);
 
   useEffect(() => {
-    bottomSentinelRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    refreshBillingStatus();
+    const timer = window.setInterval(refreshBillingStatus, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshBillingStatus]);
 
-  const formatRelativeTimestamp = (createdAt: number) => {
-    const diffSeconds = Math.round((createdAt - relativeNow) / 1000);
-    const abs = Math.abs(diffSeconds);
-    const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const rawLimit = billing?.limits.aiGenerationsPerMonth;
+  const usageCount = billing?.usage.aiGenerationsCount ?? 0;
+  const hasFiniteLimit = typeof rawLimit === "number" && Number.isFinite(rawLimit);
+  const generationLimit = hasFiniteLimit ? rawLimit : null;
+  const limitIsDisabled = generationLimit === 0;
+  const limitReached = generationLimit !== null && generationLimit > 0 && usageCount >= generationLimit;
+  const usageText = generationLimit !== null
+    ? `${usageCount}/${generationLimit} generations used`
+    : `${usageCount} generations used`;
 
-    if (abs < 60) return rtf.format(diffSeconds, "second");
-    if (abs < 3600) return rtf.format(Math.round(diffSeconds / 60), "minute");
-    if (abs < 86_400) return rtf.format(Math.round(diffSeconds / 3600), "hour");
-    return rtf.format(Math.round(diffSeconds / 86_400), "day");
-  };
-
-  const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
-    const trimmedPrompt = inputPrompt.trim();
-    if (!trimmedPrompt) return;
+  const handleGenerate = async () => {
+    if (!prompt.trim() || limitReached || limitIsDisabled) return;
     setLoading(true);
     const now = Date.now();
     const assistantMessageId = retryMessageId ?? `${now}-assistant`;
@@ -470,25 +483,17 @@ function AiCopilotPanel({
 
       let errorText = "AI generation failed";
       if (!res.ok) {
-        try {
+        let apiError = "AI generation failed";
+        if (res.status === 402) {
+          apiError = "AI generation limit reached for your plan.";
+        } else if (res.status === 403) {
+          apiError = "Your current plan does not allow AI generation. Please upgrade to continue.";
+        } else {
           const data = await res.json();
-          errorText = data.error ?? errorText;
-        } catch {
-          // noop - keep fallback error text
+          apiError = data.error ?? apiError;
         }
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantMessageId
-              ? {
-                  ...message,
-                  createdAt: Date.now(),
-                  status: "error",
-                  error: errorText,
-                  promptForRetry: trimmedPrompt,
-                }
-              : message,
-          ),
-        );
+        setError(apiError);
+        await refreshBillingStatus();
         return;
       }
 
@@ -534,6 +539,7 @@ function AiCopilotPanel({
       }
 
       setPrompt("");
+      await refreshBillingStatus();
     } catch {
       setMessages((prev) =>
         prev.map((message) =>
@@ -552,6 +558,25 @@ function AiCopilotPanel({
       setLoading(false);
     }
   };
+
+  if (limitIsDisabled) {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs dark:border-indigo-900 dark:bg-indigo-950/30">
+          <p className="text-indigo-700 dark:text-indigo-300">
+            AI Copilot is not available on your current plan.
+          </p>
+          <Link
+            href="/app/billing"
+            className="mt-2 inline-flex rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            Upgrade plan
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -637,13 +662,18 @@ function AiCopilotPanel({
         />
         <button
           type="button"
-          onClick={() => void sendPrompt(prompt)}
-          disabled={loading || !prompt.trim()}
+          onClick={handleGenerate}
+          disabled={loading || !prompt.trim() || limitReached}
           className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {loading ? "..." : "Generate"}
         </button>
       </div>
+      {billing && (
+        <div className={`text-xs ${limitReached ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"}`}>
+          {usageText}
+        </div>
+      )}
     </div>
   );
 }
