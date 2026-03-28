@@ -375,9 +375,11 @@ function FieldSettingsPanel({
 function AiCopilotPanel({
   campaignType,
   onApplySchema,
+  standalone = false,
 }: {
   campaignType: string;
   onApplySchema: (schema: FormSchema) => void;
+  standalone?: boolean;
 }) {
   type AiChatMessage = {
     id: string;
@@ -398,29 +400,68 @@ function AiCopilotPanel({
 
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<AiChatMessage[]>([]);
-  const [relativeNow, setRelativeNow] = useState(Date.now());
-  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingSites, setLoadingSites] = useState(false);
+  const [error, setError] = useState("");
+  const [siteId, setSiteId] = useState("");
+  const [sites, setSites] = useState<Array<{ id: string; name: string }>>([]);
+  const [currentSchema, setCurrentSchema] = useState<FormSchema | null>(null);
+  const [history, setHistory] = useState<Array<{ prompt: string; response: string }>>([]);
+  const router = useRouter();
 
   useEffect(() => {
-    const timer = window.setInterval(() => setRelativeNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    if (!standalone) return;
+    const controller = new AbortController();
+    setLoadingSites(true);
+    setError("");
+
+    fetch("/api/sites", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error("Failed to load sites");
+        }
+        const data = await res.json();
+        const nextSites = Array.isArray(data.sites) ? data.sites : [];
+        setSites(nextSites);
+        if (nextSites.length === 1) {
+          setSiteId(nextSites[0].id);
+        }
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        setError("Unable to load sites. Please refresh and try again.");
+      })
+      .finally(() => setLoadingSites(false));
+
+    return () => controller.abort();
+  }, [standalone]);
 
   useEffect(() => {
-    bottomSentinelRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    if (!standalone) return;
+    const controller = new AbortController();
+    setLoadingSites(true);
+    setError("");
 
-  const formatRelativeTimestamp = (createdAt: number) => {
-    const diffSeconds = Math.round((createdAt - relativeNow) / 1000);
-    const abs = Math.abs(diffSeconds);
-    const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+    fetch("/api/sites", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error("Failed to load sites");
+        }
+        const data = await res.json();
+        const nextSites = Array.isArray(data.sites) ? data.sites : [];
+        setSites(nextSites);
+        if (nextSites.length === 1) {
+          setSiteId(nextSites[0].id);
+        }
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        setError("Unable to load sites. Please refresh and try again.");
+      })
+      .finally(() => setLoadingSites(false));
 
-    if (abs < 60) return rtf.format(diffSeconds, "second");
-    if (abs < 3600) return rtf.format(Math.round(diffSeconds / 60), "minute");
-    if (abs < 86_400) return rtf.format(Math.round(diffSeconds / 3600), "hour");
-    return rtf.format(Math.round(diffSeconds / 86_400), "day");
-  };
+    return () => controller.abort();
+  }, [standalone]);
 
   const sendPrompt = async (inputPrompt: string, retryMessageId?: string) => {
     const trimmedPrompt = inputPrompt.trim();
@@ -517,7 +558,7 @@ function AiCopilotPanel({
           jsonStr = jsonMatch[1];
         }
         const schema = JSON.parse(jsonStr) as FormSchema;
-        onApplySchema(schema);
+        setCurrentSchema(schema);
       } catch {
         setMessages((prev) =>
           prev.map((message) =>
@@ -553,6 +594,53 @@ function AiCopilotPanel({
     }
   };
 
+  const handlePrimaryAction = async () => {
+    if (!currentSchema || submitting) return;
+
+    if (!standalone) {
+      onApplySchema(currentSchema);
+      return;
+    }
+
+    if (!siteId) {
+      setError("Please select a site before creating a campaign.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "AI Generated Form",
+          siteId,
+          schema: currentSchema,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(typeof data.error === "string" ? data.error : "Failed to create campaign.");
+        return;
+      }
+
+      const campaign = await res.json();
+      if (!campaign?.id) {
+        setError("Campaign created but no campaign ID was returned.");
+        return;
+      }
+
+      router.push(`/app/campaigns/${campaign.id}/builder`);
+    } catch {
+      setError("Failed to create campaign. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">AI Copilot</h3>
@@ -577,44 +665,11 @@ function AiCopilotPanel({
         </div>
       )}
 
-      <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-zinc-200 bg-zinc-50/40 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
-        {messages.map((message) => (
-          <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div
-              className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs shadow-sm ${
-                message.role === "user"
-                  ? "rounded-br-sm bg-indigo-600 text-white"
-                  : "rounded-bl-sm bg-white text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-              }`}
-            >
-              {message.role === "assistant" && message.status === "loading" ? (
-                <div className="flex items-center gap-1 py-1" aria-label="Assistant is typing">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.2s] dark:bg-zinc-500" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.1s] dark:bg-zinc-500" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 dark:bg-zinc-500" />
-                </div>
-              ) : (
-                <div>{message.content}</div>
-              )}
-
-              <div className="mt-1 text-[10px] opacity-75">{formatRelativeTimestamp(message.createdAt)}</div>
-
-              {message.role === "assistant" && message.status === "error" && message.error && (
-                <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
-                  <div>{message.error}</div>
-                  {message.promptForRetry && (
-                    <button
-                      type="button"
-                      onClick={() => void sendPrompt(message.promptForRetry!, message.id)}
-                      disabled={loading}
-                      className="mt-1 font-semibold underline decoration-dotted underline-offset-2 hover:text-red-800 disabled:opacity-60 dark:hover:text-red-200"
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+      <div className="max-h-48 space-y-2 overflow-y-auto">
+        {history.map((h, i) => (
+          <div key={i} className="rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-800">
+            <div className="font-medium text-zinc-700 dark:text-zinc-300">{h.prompt}</div>
+            <div className="mt-1 text-zinc-500 dark:text-zinc-400">Schema generated</div>
           </div>
         ))}
         <div ref={bottomSentinelRef} />
@@ -632,18 +687,54 @@ function AiCopilotPanel({
             }
           }}
           placeholder="e.g. Lead capture form for a coffee shop"
-          disabled={loading}
+          disabled={loading || submitting}
           className="flex-1 rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <button
           type="button"
-          onClick={() => void sendPrompt(prompt)}
-          disabled={loading || !prompt.trim()}
+          onClick={handleGenerate}
+          disabled={loading || submitting || !prompt.trim()}
           className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {loading ? "..." : "Generate"}
         </button>
       </div>
+
+      {standalone && (
+        <div className="space-y-1">
+          <label className="block text-xs text-zinc-600 dark:text-zinc-400">Site</label>
+          <select
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            disabled={loadingSites || submitting}
+            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          >
+            <option value="">{loadingSites ? "Loading sites..." : "Select a site"}</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {currentSchema && (
+        <div className="space-y-2 rounded border border-zinc-200 p-2 dark:border-zinc-700">
+          <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Generated schema preview</div>
+          <pre className="max-h-44 overflow-auto rounded bg-zinc-50 p-2 text-[11px] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+            {JSON.stringify(currentSchema, null, 2)}
+          </pre>
+          <button
+            type="button"
+            onClick={handlePrimaryAction}
+            disabled={submitting || loadingSites || (standalone && !siteId)}
+            className="w-full rounded bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? (standalone ? "Creating..." : "Applying...") : standalone ? "Create Campaign" : "Apply to Campaign"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

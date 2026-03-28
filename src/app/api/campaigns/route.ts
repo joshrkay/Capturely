@@ -38,7 +38,7 @@ const createCampaignSchema = z.object({
   name: z.string().min(1).max(200),
   type: z.enum(["popup", "inline"]).default("popup"),
   templateId: z.string().optional(),
-  schema: campaignSchemaPayloadSchema.optional(),
+  schema: z.unknown().optional(),
 });
 
 const globalForCampaignIdempotency = globalThis as typeof globalThis & {
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Site not found", code: "NOT_FOUND" }, { status: 404 });
     }
 
-    // Resolve initial schema for control variant
+    // Resolve schema source
     let schemaJson = JSON.stringify({
       fields: [
         { fieldId: "field_email_default", type: "email", label: "Email", placeholder: "you@example.com", required: true },
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       submitLabel: "Submit",
     });
 
-    if (parsed.data.schema) {
+    if (parsed.data.schema !== undefined) {
       schemaJson = JSON.stringify(parsed.data.schema);
     } else if (parsed.data.templateId) {
       const { getTemplate } = await import("@/lib/templates");
