@@ -16,8 +16,6 @@ enum MemberRole {
 model Account {
   id        String   @id @default(cuid())
   name      String   @default("My Account")
-  company   String?
-  timezone  String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -135,6 +133,13 @@ enum OptimizationStatus {
   promoting
 }
 
+/// What the merchant wants to optimize toward (drives AI + reporting language).
+enum OptimizationGoalKind {
+  maximize_submissions
+  maximize_qualified_leads
+  maximize_field_completion
+}
+
 model Campaign {
   id                    String             @id @default(cuid())
   accountId             String             @map("account_id")
@@ -145,6 +150,12 @@ model Campaign {
   hasUnpublishedChanges Boolean            @default(true) @map("has_unpublished_changes")
   autoOptimize          Boolean            @default(false) @map("auto_optimize")
   optimizationStatus    OptimizationStatus @default(idle) @map("optimization_status")
+
+  /// Freeform business outcome (e.g. "book more demos from Shopify visitors").
+  optimizationGoalText     String?               @map("optimization_goal_text")
+  optimizationGoalKind     OptimizationGoalKind  @default(maximize_submissions) @map("optimization_goal_kind")
+  /// When kind is maximize_field_completion, which FormSchema fieldId counts as success.
+  optimizationGoalFieldKey String?               @map("optimization_goal_field_key")
 
   // Targeting & trigger config stored as JSON
   targetingJson String? @map("targeting_json")

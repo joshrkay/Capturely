@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageCampaigns } from "@/lib/rbac";
+import { republishSiteManifest } from "@/lib/manifest-publish";
 import { buildManifest, writeManifestToDisk } from "@/lib/manifest";
 import { validateFormSchemaJson } from "@capturely/shared-forms";
 
@@ -160,21 +161,7 @@ export async function POST(
       },
     });
 
-    // Build and write manifest for the entire site
-    const site = await prisma.site.findUnique({
-      where: { id: campaign.siteId },
-      include: {
-        campaigns: {
-          where: { status: "published" },
-          include: { variants: true },
-        },
-      },
-    });
-
-    if (site) {
-      const manifest = buildManifest(site);
-      await writeManifestToDisk(site.publicKey, manifest);
-    }
+    await republishSiteManifest(campaign.siteId);
 
     return NextResponse.json({
       status: "published",
