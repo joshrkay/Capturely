@@ -27,6 +27,8 @@ import {
   buildVariantGenerationSystemPrompt,
   buildVariantGenerationUserPrompt,
 } from "./prompts/variant-generation";
+import type { OptimizationGoalKind } from "@/generated/prisma/enums";
+import { goalChallengerPromptBlock, goalPromptBlock } from "@/lib/optimization-goal";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? "",
@@ -43,12 +45,31 @@ export async function generateFormSchema(params: {
   industry?: string;
   siteUrl?: string;
   existingFields?: string;
+  optimizationGoalKind?: OptimizationGoalKind;
+  optimizationGoalText?: string | null;
+  optimizationGoalFieldKey?: string | null;
 }): Promise<AiGenerationResult> {
+  const hasOptimizationContext =
+    params.optimizationGoalKind !== undefined ||
+    (params.optimizationGoalText != null && params.optimizationGoalText.trim() !== "") ||
+    (params.optimizationGoalFieldKey != null && params.optimizationGoalFieldKey.trim() !== "");
+
+  const optimizationGoalBlock = hasOptimizationContext
+    ? goalPromptBlock({
+        kind: params.optimizationGoalKind ?? "maximize_submissions",
+        text: params.optimizationGoalText ?? null,
+        fieldKey: params.optimizationGoalFieldKey ?? null,
+      })
+    : undefined;
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: FORM_GENERATION_SYSTEM_PROMPT + `\n- Campaign type: ${params.campaignType}`,
-    messages: [{ role: "user", content: buildFormGenerationUserPrompt(params) }],
+    messages: [{
+      role: "user",
+      content: buildFormGenerationUserPrompt({ ...params, optimizationGoalBlock }),
+    }],
   });
 
   const text = response.content
@@ -137,15 +158,31 @@ export async function generateChallengerVariants(params: {
   pastWinners?: string;
   pastLosers?: string;
   count?: number;
+  optimizationGoalKind?: OptimizationGoalKind;
+  optimizationGoalText?: string | null;
+  optimizationGoalFieldKey?: string | null;
 }): Promise<AiGenerationResult> {
   const count = params.count ?? 3;
+  const optimizationGoalBlock = goalChallengerPromptBlock(
+    {
+      kind: params.optimizationGoalKind ?? "maximize_submissions",
+      text: params.optimizationGoalText ?? null,
+      fieldKey: params.optimizationGoalFieldKey ?? null,
+    },
+    params.conversionRate
+  );
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4096,
     system: buildVariantGenerationSystemPrompt({ count, pastWinners: params.pastWinners, pastLosers: params.pastLosers }),
     messages: [{
       role: "user",
-      content: buildVariantGenerationUserPrompt({ controlSchema: params.controlSchema, conversionRate: params.conversionRate }),
+      content: buildVariantGenerationUserPrompt({
+        controlSchema: params.controlSchema,
+        conversionRate: params.conversionRate,
+        optimizationGoalBlock,
+      }),
     }],
   });
 

@@ -11,6 +11,11 @@ const generateSchema = z.object({
   campaignType: z.enum(["popup", "inline"]).default("popup"),
   industry: z.string().max(100).optional(),
   siteUrl: z.string().max(500).optional(),
+  optimizationGoalKind: z
+    .enum(["maximize_submissions", "maximize_qualified_leads", "maximize_field_completion"])
+    .optional(),
+  optimizationGoalText: z.string().max(2000).optional().nullable(),
+  optimizationGoalFieldKey: z.string().max(200).optional().nullable(),
 });
 
 /** POST /api/ai/generate — AI form generation */
@@ -59,6 +64,9 @@ export async function POST(req: NextRequest) {
       campaignType: parsed.data.campaignType,
       industry: parsed.data.industry,
       siteUrl: parsed.data.siteUrl,
+      optimizationGoalKind: parsed.data.optimizationGoalKind,
+      optimizationGoalText: parsed.data.optimizationGoalText ?? undefined,
+      optimizationGoalFieldKey: parsed.data.optimizationGoalFieldKey ?? undefined,
     });
 
     // Increment AI usage
