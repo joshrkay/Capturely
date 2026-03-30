@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canView } from "@/lib/rbac";
@@ -7,6 +8,10 @@ import {
   goalMetricLabel,
   submissionMatchesGoal,
 } from "@/lib/optimization-goal";
+
+const campaignAnalyticsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(366).default(30),
+});
 
 /** GET /api/campaigns/:id/analytics — Per-campaign analytics */
 export async function GET(
@@ -29,7 +34,16 @@ export async function GET(
     }
 
     const { searchParams } = new URL(req.url);
-    const days = parseInt(searchParams.get("days") ?? "30", 10);
+    const parsed = campaignAnalyticsQuerySchema.safeParse({
+      days: searchParams.get("days") ?? undefined,
+    });
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const { days } = parsed.data;
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // Per-variant metrics
