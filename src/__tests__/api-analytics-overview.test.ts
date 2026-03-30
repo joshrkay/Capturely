@@ -99,8 +99,8 @@ describe("GET /api/analytics/overview", () => {
       { id: "camp_2", name: "Promo", _count: { submissions: 8 } },
     ]);
     mockQueryRaw.mockResolvedValue([
-      { day: "2026-03-20", count: 2n },
-      { day: "2026-03-21", count: 3n },
+      { day: "2026-03-20", count: BigInt(2) },
+      { day: "2026-03-21", count: BigInt(3) },
     ]);
 
     const res = await GET(new Request("http://localhost/api/analytics/overview?days=30") as never);
