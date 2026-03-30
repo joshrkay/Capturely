@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canView } from "@/lib/rbac";
+
+const analyticsOverviewQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(366).default(30),
+});
+
+type DailySubmissionRow = {
+  day: Date | string;
+  count: bigint | number;
+};
 
 /** GET /api/analytics/overview — Dashboard analytics */
 export async function GET(req: NextRequest) {
@@ -12,28 +22,31 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const days = parseInt(searchParams.get("days") ?? "30", 10);
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
-    // Get campaigns for this account
-    const campaigns = await prisma.campaign.findMany({
-      where: { accountId: ctx.accountId },
-      select: { id: true },
+    const parsed = analyticsOverviewQuerySchema.safeParse({
+      days: searchParams.get("days") ?? undefined,
     });
-    const campaignIds = campaigns.map((c) => c.id);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const { days } = parsed.data;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // Aggregate experiment events
     const [impressions, conversions] = await Promise.all([
       prisma.experimentEvent.count({
         where: {
-          campaignId: { in: campaignIds },
+          campaign: { accountId: ctx.accountId },
           eventType: "impression",
           timestamp: { gte: since },
         },
       }),
       prisma.experimentEvent.count({
         where: {
-          campaignId: { in: campaignIds },
+          campaign: { accountId: ctx.accountId },
           eventType: "conversion",
           timestamp: { gte: since },
         },
@@ -47,7 +60,7 @@ export async function GET(req: NextRequest) {
       where: { accountId: ctx.accountId, createdAt: { gte: since } },
     });
 
-    // Top campaigns by submissions
+    // Top campaigns by submissions (all-time count, intentionally not period-scoped).
     const topCampaigns = await prisma.campaign.findMany({
       where: { accountId: ctx.accountId },
       include: {
@@ -59,18 +72,21 @@ export async function GET(req: NextRequest) {
       take: 5,
     });
 
-    // Daily submission counts for chart
-    const submissions = await prisma.submission.findMany({
-      where: { accountId: ctx.accountId, createdAt: { gte: since } },
-      select: { createdAt: true },
-      orderBy: { createdAt: "asc" },
-    });
+    // We use a small Postgres-specific grouped query here to avoid loading every
+    // submission row into memory for large accounts. The tradeoff is SQL portability
+    // in exchange for a bounded result set and predictable API cost.
+    const dailyRows = await prisma.$queryRaw<DailySubmissionRow[]>`
+      SELECT DATE("created_at" AT TIME ZONE 'UTC') AS day, COUNT(*)::bigint AS count
+      FROM "submissions"
+      WHERE "account_id" = ${ctx.accountId} AND "created_at" >= ${since}
+      GROUP BY day
+      ORDER BY day ASC
+    `;
 
-    const dailyCounts: Record<string, number> = {};
-    for (const s of submissions) {
-      const day = s.createdAt.toISOString().split("T")[0];
-      dailyCounts[day] = (dailyCounts[day] ?? 0) + 1;
-    }
+    const dailySubmissions = dailyRows.map((row) => ({
+      date: row.day instanceof Date ? row.day.toISOString().split("T")[0] : String(row.day),
+      count: Number(row.count),
+    }));
 
     return NextResponse.json({
       period: { days, since: since.toISOString() },
@@ -85,7 +101,7 @@ export async function GET(req: NextRequest) {
         name: c.name,
         submissions: c._count.submissions,
       })),
-      dailySubmissions: Object.entries(dailyCounts).map(([date, count]) => ({ date, count })),
+      dailySubmissions,
     });
   } catch (err) {
     if (err instanceof AccountContextError) {

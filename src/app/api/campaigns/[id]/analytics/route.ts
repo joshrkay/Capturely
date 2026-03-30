@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canView } from "@/lib/rbac";
+
+const campaignAnalyticsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(366).default(30),
+});
 
 /** GET /api/campaigns/:id/analytics — Per-campaign analytics */
 export async function GET(
@@ -24,36 +29,71 @@ export async function GET(
     }
 
     const { searchParams } = new URL(req.url);
-    const days = parseInt(searchParams.get("days") ?? "30", 10);
+    const parsed = campaignAnalyticsQuerySchema.safeParse({
+      days: searchParams.get("days") ?? undefined,
+    });
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", code: "VALIDATION_ERROR", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const { days } = parsed.data;
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // Per-variant metrics
-    const variantMetrics = await Promise.all(
-      campaign.variants.map(async (variant) => {
-        const [impressions, conversions, submissions] = await Promise.all([
-          prisma.experimentEvent.count({
-            where: { campaignId: id, variationId: variant.id, eventType: "impression", timestamp: { gte: since } },
-          }),
-          prisma.experimentEvent.count({
-            where: { campaignId: id, variationId: variant.id, eventType: "conversion", timestamp: { gte: since } },
-          }),
-          prisma.submission.count({
-            where: { campaignId: id, variantId: variant.id, createdAt: { gte: since } },
-          }),
-        ]);
+    // Use bounded groupBy queries instead of O(variants) count calls.
+    const [eventCounts, submissionCounts] = await Promise.all([
+      prisma.experimentEvent.groupBy({
+        by: ["variationId", "eventType"],
+        where: {
+          campaignId: id,
+          variationId: { in: campaign.variants.map((variant) => variant.id) },
+          timestamp: { gte: since },
+        },
+        _count: { _all: true },
+      }),
+      prisma.submission.groupBy({
+        by: ["variantId"],
+        where: { campaignId: id, variantId: { not: null }, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+    ]);
 
-        return {
-          variantId: variant.id,
-          variantName: variant.name,
-          isControl: variant.isControl,
-          trafficPercentage: variant.trafficPercentage,
-          impressions,
-          conversions,
-          submissions,
-          conversionRate: impressions > 0 ? Math.round((conversions / impressions) * 10000) / 100 : 0,
-        };
-      })
-    );
+    const eventByVariant = new Map<string, { impressions: number; conversions: number }>();
+    for (const row of eventCounts) {
+      const current = eventByVariant.get(row.variationId) ?? { impressions: 0, conversions: 0 };
+      if (row.eventType === "impression") {
+        current.impressions = row._count._all;
+      } else {
+        current.conversions = row._count._all;
+      }
+      eventByVariant.set(row.variationId, current);
+    }
+
+    const submissionsByVariant = new Map<string, number>();
+    for (const row of submissionCounts) {
+      if (!row.variantId) continue;
+      submissionsByVariant.set(row.variantId, row._count._all);
+    }
+
+    const variantMetrics = campaign.variants.map((variant) => {
+      const eventCountsForVariant = eventByVariant.get(variant.id) ?? { impressions: 0, conversions: 0 };
+      const submissions = submissionsByVariant.get(variant.id) ?? 0;
+      const impressions = eventCountsForVariant.impressions;
+      const conversions = eventCountsForVariant.conversions;
+
+      return {
+        variantId: variant.id,
+        variantName: variant.name,
+        isControl: variant.isControl,
+        trafficPercentage: variant.trafficPercentage,
+        impressions,
+        conversions,
+        submissions,
+        conversionRate: impressions > 0 ? Math.round((conversions / impressions) * 10000) / 100 : 0,
+      };
+    });
 
     // Total campaign metrics
     const totalImpressions = variantMetrics.reduce((sum, v) => sum + v.impressions, 0);
