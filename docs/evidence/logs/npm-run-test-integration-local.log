@@ -1,0 +1,6 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> capturely-tmp@0.1.0 test:integration:local
+> docker compose up -d && prisma migrate dev --name local-verify && npm run test && docker compose down
+
+sh: 1: docker: not found
