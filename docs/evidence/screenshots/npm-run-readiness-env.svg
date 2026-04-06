@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="887" height="634">
+<rect width="100%" height="100%" fill="#0b1020"/>
+<text x="20" y="30" fill="#d7e3ff" font-family="monospace" font-size="14">
+<tspan x="20" y="30">npm warn Unknown env config &quot;http-proxy&quot;. This will stop working in the next major version of npm.</tspan>
+<tspan x="20" y="48"></tspan>
+<tspan x="20" y="66">&gt; capturely-tmp@0.1.0 readiness:env</tspan>
+<tspan x="20" y="84">&gt; tsx scripts/readiness/verify-env.ts</tspan>
+<tspan x="20" y="102"></tspan>
+<tspan x="20" y="120">[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: &#x27;/custom/path/.env&#x27; }</tspan>
+<tspan x="20" y="138">[dotenv@17.3.1] injecting env (0) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild</tspan>
+<tspan x="20" y="156">Capturely environment readiness check</tspan>
+<tspan x="20" y="174"></tspan>
+<tspan x="20" y="192">Present variables: 0/19</tspan>
+<tspan x="20" y="210"></tspan>
+<tspan x="20" y="228">Missing required</tspan>
+<tspan x="20" y="246">❌ DATABASE_URL — Database connectivity</tspan>
+<tspan x="20" y="264">❌ NEXT_PUBLIC_APP_URL — Absolute app URL for redirects/callbacks</tspan>
+<tspan x="20" y="282">❌ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY — Clerk client auth</tspan>
+<tspan x="20" y="300">❌ CLERK_SECRET_KEY — Clerk server auth</tspan>
+<tspan x="20" y="318">❌ RUNTIME_SIGNING_SECRET — Widget token signing</tspan>
+<tspan x="20" y="336">❌ CRON_SECRET — Cron endpoint authentication</tspan>
+<tspan x="20" y="354">❌ STRIPE_SECRET_KEY — Billing checkout + portal</tspan>
+<tspan x="20" y="372">❌ STRIPE_WEBHOOK_SECRET — Stripe webhook verification</tspan>
+<tspan x="20" y="390">❌ STRIPE_STARTER_PRICE_ID — Starter plan checkout</tspan>
+<tspan x="20" y="408">❌ STRIPE_GROWTH_PRICE_ID — Growth plan checkout</tspan>
+<tspan x="20" y="426">❌ RESEND_API_KEY — Transactional email</tspan>
+<tspan x="20" y="444">❌ FROM_EMAIL — Email sender identity</tspan>
+<tspan x="20" y="462">❌ ANTHROPIC_API_KEY — AI generation endpoints</tspan>
+<tspan x="20" y="480">❌ GROWTHBOOK_API_HOST — Experimentation API host</tspan>
+<tspan x="20" y="498">❌ GROWTHBOOK_SECRET_KEY — Experimentation API auth</tspan>
+<tspan x="20" y="516"></tspan>
+<tspan x="20" y="534">Missing recommended</tspan>
+<tspan x="20" y="552">⚠️ SHOPIFY_API_KEY — Shopify OAuth</tspan>
+<tspan x="20" y="570">⚠️ SHOPIFY_API_SECRET — Shopify OAuth</tspan>
+<tspan x="20" y="588">⚠️ SHOPIFY_SCOPES — Shopify permissions</tspan>
+<tspan x="20" y="606">⚠️ RECAPTCHA_SECRET_KEY — Spam protection verification</tspan>
+</text></svg>

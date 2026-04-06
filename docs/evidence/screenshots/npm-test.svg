@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="761" height="688">
+<rect width="100%" height="100%" fill="#0b1020"/>
+<text x="20" y="30" fill="#d7e3ff" font-family="monospace" font-size="14">
+<tspan x="20" y="30">npm warn Unknown env config &quot;http-proxy&quot;. This will stop working in the next major version of npm.</tspan>
+<tspan x="20" y="48"></tspan>
+<tspan x="20" y="66">&gt; capturely-tmp@0.1.0 test</tspan>
+<tspan x="20" y="84">&gt; prisma generate &amp;&amp; vitest run</tspan>
+<tspan x="20" y="102"></tspan>
+<tspan x="20" y="120">Loaded Prisma config from prisma.config.ts.</tspan>
+<tspan x="20" y="138"></tspan>
+<tspan x="20" y="156">Prisma schema loaded from prisma/schema.prisma.</tspan>
+<tspan x="20" y="174"></tspan>
+<tspan x="20" y="192">✔ Generated Prisma Client (7.4.1) to ./src/generated/prisma in 308ms</tspan>
+<tspan x="20" y="210"></tspan>
+<tspan x="20" y="228"></tspan>
+<tspan x="20" y="246"> RUN  v4.0.18 /workspace/Capturely</tspan>
+<tspan x="20" y="264"></tspan>
+<tspan x="20" y="282"> ✓ src/app/app/campaigns/[id]/builder/components/__tests__/FormPreview.test.tsx (14 tests) 8ms</tspan>
+<tspan x="20" y="300"> ✓ src/__tests__/api-settings.test.ts (9 tests) 62ms</tspan>
+<tspan x="20" y="318"> ✓ src/lib/ai/prompts/__tests__/prompts.test.ts (16 tests) 10ms</tspan>
+<tspan x="20" y="336"> ✓ src/app/app/campaigns/[id]/builder/_components/__tests__/VariantManagerPanel.test.ts (16 tests) 10ms</tspan>
+<tspan x="20" y="354"> ✓ src/__tests__/api-campaign-analytics.test.ts (3 tests) 16ms</tspan>
+<tspan x="20" y="372"> ✓ src/__tests__/api-billing-status.test.ts (3 tests) 14ms</tspan>
+<tspan x="20" y="390"> ✓ src/__tests__/api-analytics-overview.test.ts (3 tests) 17ms</tspan>
+<tspan x="20" y="408"> ✓ src/__tests__/settings.test.ts (11 tests) 34ms</tspan>
+<tspan x="20" y="426"> ✓ src/__tests__/statistics.test.ts (14 tests) 7ms</tspan>
+<tspan x="20" y="444"> ✓ src/__tests__/account.test.ts (4 tests) 9ms</tspan>
+<tspan x="20" y="462"> ✓ src/app/app/campaigns/new/__tests__/template-behaviors.test.tsx (6 tests) 16ms</tspan>
+<tspan x="20" y="480"> ✓ src/app/app/settings/components/__tests__/notifications-client.test.ts (2 tests) 8ms</tspan>
+<tspan x="20" y="498"> ✓ src/__tests__/rbac.test.ts (15 tests) 5ms</tspan>
+<tspan x="20" y="516"> ✓ src/app/api/settings/__tests__/schemas.test.ts (6 tests) 30ms</tspan>
+<tspan x="20" y="534"> ✓ src/lib/templates/__tests__/index.test.ts (4 tests) 5ms</tspan>
+<tspan x="20" y="552"> ✓ src/app/app/campaigns/new/__tests__/sites-response.test.ts (2 tests) 4ms</tspan>
+<tspan x="20" y="570"></tspan>
+<tspan x="20" y="588"> Test Files  16 passed (16)</tspan>
+<tspan x="20" y="606">      Tests  128 passed (128)</tspan>
+<tspan x="20" y="624">   Start at  14:51:27</tspan>
+<tspan x="20" y="642">   Duration  5.57s (transform 930ms, setup 0ms, import 2.29s, tests 256ms, environment 2ms)</tspan>
+<tspan x="20" y="660"></tspan>
+</text></svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="796" height="526">
+<rect width="100%" height="100%" fill="#0b1020"/>
+<text x="20" y="30" fill="#d7e3ff" font-family="monospace" font-size="14">
+<tspan x="20" y="30">npm warn Unknown env config &quot;http-proxy&quot;. This will stop working in the next major version of npm.</tspan>
+<tspan x="20" y="48"></tspan>
+<tspan x="20" y="66">&gt; capturely-tmp@0.1.0 readiness:run</tspan>
+<tspan x="20" y="84">&gt; tsx scripts/readiness/run.ts</tspan>
+<tspan x="20" y="102"></tspan>
+<tspan x="20" y="120">[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }</tspan>
+<tspan x="20" y="138">[dotenv@17.3.1] injecting env (0) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`</tspan>
+<tspan x="20" y="156">Capturely go-live execution runner</tspan>
+<tspan x="20" y="174"></tspan>
+<tspan x="20" y="192">❌ Required environment variables are missing:</tspan>
+<tspan x="20" y="210">  - DATABASE_URL (Database connectivity)</tspan>
+<tspan x="20" y="228">  - NEXT_PUBLIC_APP_URL (Absolute app URL for redirects/callbacks)</tspan>
+<tspan x="20" y="246">  - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (Clerk client auth)</tspan>
+<tspan x="20" y="264">  - CLERK_SECRET_KEY (Clerk server auth)</tspan>
+<tspan x="20" y="282">  - RUNTIME_SIGNING_SECRET (Widget token signing)</tspan>
+<tspan x="20" y="300">  - CRON_SECRET (Cron endpoint authentication)</tspan>
+<tspan x="20" y="318">  - STRIPE_SECRET_KEY (Billing checkout + portal)</tspan>
+<tspan x="20" y="336">  - STRIPE_WEBHOOK_SECRET (Stripe webhook verification)</tspan>
+<tspan x="20" y="354">  - STRIPE_STARTER_PRICE_ID (Starter plan checkout)</tspan>
+<tspan x="20" y="372">  - STRIPE_GROWTH_PRICE_ID (Growth plan checkout)</tspan>
+<tspan x="20" y="390">  - RESEND_API_KEY (Transactional email)</tspan>
+<tspan x="20" y="408">  - FROM_EMAIL (Email sender identity)</tspan>
+<tspan x="20" y="426">  - ANTHROPIC_API_KEY (AI generation endpoints)</tspan>
+<tspan x="20" y="444">  - GROWTHBOOK_API_HOST (Experimentation API host)</tspan>
+<tspan x="20" y="462">  - GROWTHBOOK_SECRET_KEY (Experimentation API auth)</tspan>
+<tspan x="20" y="480"></tspan>
+<tspan x="20" y="498">Populate .env.local (see .env.example) and rerun.</tspan>
+</text></svg>
