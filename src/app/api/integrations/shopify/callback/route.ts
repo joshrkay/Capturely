@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { verifyHmac, exchangeCodeForToken, isValidShopDomain, injectScriptTag, listScriptTags } from "@/lib/shopify";
 
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
 /** GET /api/integrations/shopify/callback — Handles Shopify OAuth callback */
 export async function GET(req: NextRequest) {
   try {
@@ -11,7 +13,6 @@ export async function GET(req: NextRequest) {
     const shop = req.nextUrl.searchParams.get("shop") ?? "";
     const code = req.nextUrl.searchParams.get("code") ?? "";
     const state = req.nextUrl.searchParams.get("state") ?? "";
-    const hmac = req.nextUrl.searchParams.get("hmac") ?? "";
 
     // Validate shop domain
     if (!isValidShopDomain(shop)) {
@@ -20,9 +21,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Verify nonce from cookie
+    // Basic CSRF guard before DB validation
     const storedNonce = req.cookies.get("shopify_oauth_nonce")?.value;
     if (!storedNonce || storedNonce !== state) {
+      console.warn("shopify_oauth_invalid_state_cookie", {
+        accountId: ctx.accountId,
+        shopDomain: shop,
+        hasStoredNonce: Boolean(storedNonce),
+        hasState: Boolean(state),
+      });
+      return NextResponse.redirect(
+        new URL("/app/integrations?error=invalid_state", req.url)
+      );
+    }
+
+    // Validate + consume OAuth attempt atomically
+    const consumed = await prisma.oAuthAttempt.updateMany({
+      where: {
+        nonce: state,
+        accountId: ctx.accountId,
+        shopDomain: shop,
+        usedAt: null,
+        createdAt: { gte: new Date(Date.now() - OAUTH_STATE_TTL_MS) },
+      },
+      data: { usedAt: new Date() },
+    });
+    if (consumed.count !== 1) {
+      console.warn("shopify_oauth_invalid_state_db", {
+        accountId: ctx.accountId,
+        shopDomain: shop,
+        consumedCount: consumed.count,
+      });
       return NextResponse.redirect(
         new URL("/app/integrations?error=invalid_state", req.url)
       );
@@ -34,6 +63,11 @@ export async function GET(req: NextRequest) {
       queryParams[key] = value;
     });
     if (!verifyHmac(queryParams)) {
+      console.warn("shopify_oauth_invalid_hmac", {
+        accountId: ctx.accountId,
+        shopDomain: shop,
+        queryParamKeys: Object.keys(queryParams).sort(),
+      });
       return NextResponse.redirect(
         new URL("/app/integrations?error=invalid_hmac", req.url)
       );

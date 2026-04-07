@@ -39,8 +39,26 @@ model Account {
   notifications Notification[]
   usage         AccountUsage?
   integrations  Integration[]
+  oauthAttempts OAuthAttempt[]
 
   @@map("accounts")
+}
+
+model OAuthAttempt {
+  id         String    @id @default(cuid())
+  nonce      String    @unique
+  accountId  String    @map("account_id")
+  shopDomain String    @map("shop_domain")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  usedAt     DateTime? @map("used_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([shopDomain])
+  @@index([createdAt])
+  @@index([usedAt])
+  @@map("oauth_attempts")
 }
 
 model AccountMember {
