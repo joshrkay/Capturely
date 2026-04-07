@@ -31,29 +31,47 @@ export async function ensureAccountForUser(
   }
 
   // Create new account + owner membership in a transaction
-  const account = await prisma.account.create({
-    data: {
-      name: email ? `${email}'s Account` : "My Account",
-      members: {
-        create: {
-          userId,
-          role: MemberRole.owner,
+  try {
+    const account = await prisma.account.create({
+      data: {
+        name: email ? `${email}'s Account` : "My Account",
+        members: {
+          create: {
+            userId,
+            role: MemberRole.owner,
+          },
         },
       },
-    },
-    include: {
-      members: {
-        where: { userId },
-        select: { role: true },
+      include: {
+        members: {
+          where: { userId },
+          select: { role: true },
+        },
       },
-    },
-  });
+    });
 
-  return {
-    accountId: account.id,
-    userId,
-    role: account.members[0].role,
-  };
+    return {
+      accountId: account.id,
+      userId,
+      role: account.members[0].role,
+    };
+  } catch (error) {
+    // Partial-failure/race safety: if create path fails, re-check membership once.
+    const recovered = await prisma.accountMember.findFirst({
+      where: { userId },
+      select: { accountId: true, role: true },
+    });
+
+    if (recovered) {
+      return {
+        accountId: recovered.accountId,
+        userId,
+        role: recovered.role,
+      };
+    }
+
+    throw error;
+  }
 }
 
 /**
@@ -61,26 +79,17 @@ export async function ensureAccountForUser(
  * Throws a 403-style error if the user has no membership.
  */
 export async function withAccountContext(): Promise<AccountContext> {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
 
   if (!userId) {
     throw new AccountContextError("Unauthorized", 401);
   }
 
-  const membership = await prisma.accountMember.findFirst({
-    where: { userId },
-    select: { accountId: true, role: true },
-  });
-
-  if (!membership) {
-    throw new AccountContextError("No account membership found", 403);
-  }
-
-  return {
-    accountId: membership.accountId,
-    userId,
-    role: membership.role,
-  };
+  const email =
+    typeof sessionClaims?.email === "string"
+      ? sessionClaims.email
+      : undefined;
+  return ensureAccountForUser(userId, email);
 }
 
 export class AccountContextError extends Error {
