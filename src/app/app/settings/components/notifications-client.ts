@@ -2,7 +2,7 @@ import {
   buildSettingsPatchPayload,
   defaultNotificationPreferences,
   type NotificationPreferences,
-} from "@/lib/settings";
+} from "@/lib/settings-shared";
 
 type SettingsApiResponse = {
   settings: {

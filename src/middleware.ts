@@ -5,6 +5,7 @@ const isProtectedRoute = createRouteMatcher(["/app(.*)"]);
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
 const isPublicApiRoute = createRouteMatcher([
   "/api/runtime(.*)",
+  "/api/manifests(.*)",
   "/api/health(.*)",
   "/api/stripe/webhook(.*)",
   "/api/growthbook/webhook(.*)",

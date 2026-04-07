@@ -1,3 +1,11 @@
+/**
+ * Server-side settings utilities.
+ *
+ * Re-exports client-safe helpers from settings-shared.ts and adds
+ * server-only helpers that depend on Prisma.
+ */
+
+import { MemberRole } from "@/generated/prisma/client";
 import { z } from "zod";
 import {
   getActiveSettingsTab as getCanonicalActiveSettingsTab,
@@ -7,6 +15,19 @@ import {
   type SettingsTabKey,
 } from "@/lib/settings-tabs-policy";
 
+// Re-export everything from the client-safe module so existing server-side
+// imports from "@/lib/settings" continue to work without changes.
+export {
+  notificationPreferencesSchema,
+  type NotificationPreferences,
+  defaultNotificationPreferences,
+  updateSettingsSchema,
+  type UpdateSettingsInput,
+  buildSettingsPatchPayload,
+  deleteAccountSchema,
+  serializeNotificationPreferences,
+  parseNotificationPreferences,
+} from "@/lib/settings-shared";
 /** True if `tz` is a non-empty identifier accepted by the runtime as an IANA time zone. */
 export function isValidIanaTimeZone(tz: string): boolean {
   if (tz === "") {
