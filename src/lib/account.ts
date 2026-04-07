@@ -30,8 +30,7 @@ export async function ensureAccountForUser(
     };
   }
 
-  // Create new account + owner membership.
-  // If this fails due to a race/partial retry scenario, re-check membership once.
+  // Create new account + owner membership in a transaction
   try {
     const account = await prisma.account.create({
       data: {
@@ -57,16 +56,17 @@ export async function ensureAccountForUser(
       role: account.members[0].role,
     };
   } catch (error) {
-    const retried = await prisma.accountMember.findFirst({
+    // Partial-failure/race safety: if create path fails, re-check membership once.
+    const recovered = await prisma.accountMember.findFirst({
       where: { userId },
       select: { accountId: true, role: true },
     });
 
-    if (retried) {
+    if (recovered) {
       return {
-        accountId: retried.accountId,
+        accountId: recovered.accountId,
         userId,
-        role: retried.role,
+        role: recovered.role,
       };
     }
 
@@ -79,34 +79,17 @@ export async function ensureAccountForUser(
  * Ensures first-login users get an account before membership-dependent operations.
  */
 export async function withAccountContext(): Promise<AccountContext> {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
 
   if (!userId) {
     throw new AccountContextError("Unauthorized", 401);
   }
 
-  const user = await currentUser();
   const email =
-    user?.primaryEmailAddress?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress;
-
-  try {
-    return await ensureAccountForUser(userId, email);
-  } catch {
-    const membership = await prisma.accountMember.findFirst({
-      where: { userId },
-      select: { accountId: true, role: true },
-    });
-
-    if (membership) {
-      return {
-        accountId: membership.accountId,
-        userId,
-        role: membership.role,
-      };
-    }
-
-    throw new AccountContextError("No account membership found", 403);
-  }
+    typeof sessionClaims?.email === "string"
+      ? sessionClaims.email
+      : undefined;
+  return ensureAccountForUser(userId, email);
 }
 
 export class AccountContextError extends Error {
