@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { MemberRole } from "@/generated/prisma/client";
 
@@ -30,35 +30,53 @@ export async function ensureAccountForUser(
     };
   }
 
-  // Create new account + owner membership in a transaction
-  const account = await prisma.account.create({
-    data: {
-      name: email ? `${email}'s Account` : "My Account",
-      members: {
-        create: {
-          userId,
-          role: MemberRole.owner,
+  // Create new account + owner membership.
+  // If this fails due to a race/partial retry scenario, re-check membership once.
+  try {
+    const account = await prisma.account.create({
+      data: {
+        name: email ? `${email}'s Account` : "My Account",
+        members: {
+          create: {
+            userId,
+            role: MemberRole.owner,
+          },
         },
       },
-    },
-    include: {
-      members: {
-        where: { userId },
-        select: { role: true },
+      include: {
+        members: {
+          where: { userId },
+          select: { role: true },
+        },
       },
-    },
-  });
+    });
 
-  return {
-    accountId: account.id,
-    userId,
-    role: account.members[0].role,
-  };
+    return {
+      accountId: account.id,
+      userId,
+      role: account.members[0].role,
+    };
+  } catch (error) {
+    const retried = await prisma.accountMember.findFirst({
+      where: { userId },
+      select: { accountId: true, role: true },
+    });
+
+    if (retried) {
+      return {
+        accountId: retried.accountId,
+        userId,
+        role: retried.role,
+      };
+    }
+
+    throw error;
+  }
 }
 
 /**
  * Resolves accountId + role from the Clerk session.
- * Throws a 403-style error if the user has no membership.
+ * Ensures first-login users get an account before membership-dependent operations.
  */
 export async function withAccountContext(): Promise<AccountContext> {
   const { userId } = await auth();
@@ -67,20 +85,28 @@ export async function withAccountContext(): Promise<AccountContext> {
     throw new AccountContextError("Unauthorized", 401);
   }
 
-  const membership = await prisma.accountMember.findFirst({
-    where: { userId },
-    select: { accountId: true, role: true },
-  });
+  const user = await currentUser();
+  const email =
+    user?.primaryEmailAddress?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress;
 
-  if (!membership) {
+  try {
+    return await ensureAccountForUser(userId, email);
+  } catch {
+    const membership = await prisma.accountMember.findFirst({
+      where: { userId },
+      select: { accountId: true, role: true },
+    });
+
+    if (membership) {
+      return {
+        accountId: membership.accountId,
+        userId,
+        role: membership.role,
+      };
+    }
+
     throw new AccountContextError("No account membership found", 403);
   }
-
-  return {
-    accountId: membership.accountId,
-    userId,
-    role: membership.role,
-  };
 }
 
 export class AccountContextError extends Error {
