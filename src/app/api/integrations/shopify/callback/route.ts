@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
-import { verifyHmac, exchangeCodeForToken, isValidShopDomain, injectScriptTag, listScriptTags } from "@/lib/shopify";
+import {
+  verifyHmac,
+  exchangeCodeForToken,
+  isValidShopDomain,
+  injectScriptTag,
+  listScriptTags,
+  getInstallationPlan,
+  migrateLegacyScriptTags,
+} from "@/lib/shopify";
 
 /** GET /api/integrations/shopify/callback — Handles Shopify OAuth callback */
 export async function GET(req: NextRequest) {
@@ -11,7 +19,6 @@ export async function GET(req: NextRequest) {
     const shop = req.nextUrl.searchParams.get("shop") ?? "";
     const code = req.nextUrl.searchParams.get("code") ?? "";
     const state = req.nextUrl.searchParams.get("state") ?? "";
-    const hmac = req.nextUrl.searchParams.get("hmac") ?? "";
 
     // Validate shop domain
     if (!isValidShopDomain(shop)) {
@@ -49,21 +56,55 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Inject widget.js script tag into the Shopify store
     const widgetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://app.capturely.io"}/widget.js`;
-    let scriptTagId: number | undefined;
-    try {
-      // Avoid duplicate tags — check if already installed
-      const existingTags = await listScriptTags(shop, accessToken);
-      const alreadyInstalled = existingTags.some((t) => t.src === widgetUrl);
-      if (!alreadyInstalled) {
-        const tag = await injectScriptTag(shop, accessToken, widgetUrl);
-        scriptTagId = tag.id;
-      } else {
-        scriptTagId = existingTags.find((t) => t.src === widgetUrl)?.id;
+    const installationPlan = getInstallationPlan(shop);
+
+    let metadata: Record<string, unknown> = {
+      shopDomain: shop,
+      installMethod: installationPlan.method,
+    };
+
+    if (installationPlan.appEmbedActivationUrl) {
+      metadata = {
+        ...metadata,
+        appEmbedActivationUrl: installationPlan.appEmbedActivationUrl,
+        appEmbedStatus: "pending_activation",
+      };
+    }
+
+    if (installationPlan.method === "theme_app_extension") {
+      try {
+        const migration = await migrateLegacyScriptTags(shop, accessToken, widgetUrl);
+        if (migration.removedScriptTagIds.length > 0) {
+          metadata = {
+            ...metadata,
+            migratedFromScriptTagsAt: new Date().toISOString(),
+            removedLegacyScriptTagIds: migration.removedScriptTagIds,
+          };
+        }
+      } catch {
+        // Migration failure is non-fatal; store remains connected.
       }
-    } catch {
-      // Script tag injection failure is non-fatal; merchant can re-install manually
+    } else {
+      let scriptTagId: number | undefined;
+      try {
+        const existingTags = await listScriptTags(shop, accessToken);
+        const alreadyInstalled = existingTags.some((t) => t.src === widgetUrl);
+        if (!alreadyInstalled) {
+          const tag = await injectScriptTag(shop, accessToken, widgetUrl);
+          scriptTagId = tag.id;
+        } else {
+          scriptTagId = existingTags.find((t) => t.src === widgetUrl)?.id;
+        }
+      } catch {
+        // Script tag injection failure is non-fatal; merchant can re-install manually
+      }
+
+      metadata = {
+        ...metadata,
+        scriptTagId,
+        installPathDeprecated: true,
+      };
     }
 
     // Upsert integration record
@@ -79,16 +120,15 @@ export async function GET(req: NextRequest) {
         platform: "shopify",
         status: "connected",
         credentials: JSON.stringify({ accessToken }),
-        metadata: JSON.stringify({ shopDomain: shop, scriptTagId }),
+        metadata: JSON.stringify(metadata),
       },
       update: {
         status: "connected",
         credentials: JSON.stringify({ accessToken }),
-        metadata: JSON.stringify({ shopDomain: shop, scriptTagId }),
+        metadata: JSON.stringify(metadata),
       },
     });
 
-    // Clear the nonce cookie
     const response = NextResponse.redirect(
       new URL("/app/integrations?success=shopify_connected", req.url)
     );
@@ -96,7 +136,6 @@ export async function GET(req: NextRequest) {
     return response;
   } catch (err) {
     if (err instanceof AccountContextError) {
-      // User not authenticated — redirect to sign in
       return NextResponse.redirect(
         new URL("/sign-in?redirect_url=/app/integrations", req.url)
       );
