@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { MemberRole } from "@/generated/prisma/client";
 
@@ -76,7 +76,7 @@ export async function ensureAccountForUser(
 
 /**
  * Resolves accountId + role from the Clerk session.
- * Throws a 403-style error if the user has no membership.
+ * Ensures first-login users get an account before membership-dependent operations.
  */
 export async function withAccountContext(): Promise<AccountContext> {
   const { userId, sessionClaims } = await auth();
