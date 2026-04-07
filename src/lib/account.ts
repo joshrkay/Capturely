@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { MemberRole } from "@/generated/prisma/client";
 
@@ -30,7 +30,8 @@ export async function ensureAccountForUser(
     };
   }
 
-  // Create new account + owner membership in a transaction
+  // Create new account + owner membership.
+  // If this fails due to a race/partial retry scenario, re-check membership once.
   try {
     const account = await prisma.account.create({
       data: {
@@ -56,8 +57,7 @@ export async function ensureAccountForUser(
       role: account.members[0].role,
     };
   } catch (error) {
-    // Partial-failure/race safety: if create path fails, re-check membership once.
-    const recovered = await prisma.accountMember.findFirst({
+    const retried = await prisma.accountMember.findFirst({
       where: { userId },
       select: { accountId: true, role: true },
     });
@@ -76,7 +76,7 @@ export async function ensureAccountForUser(
 
 /**
  * Resolves accountId + role from the Clerk session.
- * Throws a 403-style error if the user has no membership.
+ * Ensures first-login users get an account before membership-dependent operations.
  */
 export async function withAccountContext(): Promise<AccountContext> {
   const { userId, sessionClaims } = await auth();
