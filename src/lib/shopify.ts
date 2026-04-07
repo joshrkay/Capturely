@@ -3,6 +3,15 @@ import { createHmac } from "crypto";
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY ?? "";
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET ?? "";
 const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES ?? "read_themes,write_script_tags";
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION ?? "2024-01";
+const SHOPIFY_THEME_APP_EXTENSION_HANDLE = process.env.SHOPIFY_THEME_APP_EXTENSION_HANDLE ?? "";
+
+export type ShopifyInstallationMethod = "theme_app_extension" | "script_tag";
+
+interface ShopifyInstallationPlan {
+  method: ShopifyInstallationMethod;
+  appEmbedActivationUrl?: string;
+}
 
 /**
  * Validates a Shopify shop domain. Must match *.myshopify.com pattern.
@@ -54,8 +63,26 @@ interface ShopifyScriptTag {
 }
 
 /**
+ * Return the preferred install path for this app.
+ *
+ * Shopify's preferred model is Theme App Extensions (app embeds). We use that path
+ * when SHOPIFY_THEME_APP_EXTENSION_HANDLE is configured. Script tags are retained
+ * only as a backward-compatible fallback.
+ */
+export function getInstallationPlan(shopDomain: string): ShopifyInstallationPlan {
+  if (SHOPIFY_API_KEY && SHOPIFY_THEME_APP_EXTENSION_HANDLE) {
+    return {
+      method: "theme_app_extension",
+      appEmbedActivationUrl: `https://${shopDomain}/admin/themes/current/editor?context=apps&template=index&activateAppId=${SHOPIFY_API_KEY}/${SHOPIFY_THEME_APP_EXTENSION_HANDLE}`,
+    };
+  }
+
+  return { method: "script_tag" };
+}
+
+/**
  * Inject a script tag into a Shopify store via the Admin REST API.
- * Called after successful OAuth to install widget.js automatically.
+ * @deprecated Script tags are now legacy for storefront injection. Prefer Theme App Extensions.
  */
 export async function injectScriptTag(
   shopDomain: string,
@@ -63,7 +90,7 @@ export async function injectScriptTag(
   scriptSrc: string
 ): Promise<ShopifyScriptTag> {
   const response = await fetch(
-    `https://${shopDomain}/admin/api/2024-01/script_tags.json`,
+    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/script_tags.json`,
     {
       method: "POST",
       headers: {
@@ -96,7 +123,7 @@ export async function listScriptTags(
   accessToken: string
 ): Promise<ShopifyScriptTag[]> {
   const response = await fetch(
-    `https://${shopDomain}/admin/api/2024-01/script_tags.json`,
+    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/script_tags.json`,
     {
       headers: { "X-Shopify-Access-Token": accessToken },
     }
@@ -120,7 +147,7 @@ export async function deleteScriptTag(
   scriptTagId: number
 ): Promise<void> {
   const response = await fetch(
-    `https://${shopDomain}/admin/api/2024-01/script_tags/${scriptTagId}.json`,
+    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/script_tags/${scriptTagId}.json`,
     {
       method: "DELETE",
       headers: { "X-Shopify-Access-Token": accessToken },
@@ -131,6 +158,21 @@ export async function deleteScriptTag(
     const text = await response.text();
     throw new Error(`Shopify delete script tag failed: ${response.status} ${text}`);
   }
+}
+
+export async function migrateLegacyScriptTags(
+  shopDomain: string,
+  accessToken: string,
+  widgetUrl: string
+): Promise<{ removedScriptTagIds: number[] }> {
+  const existingTags = await listScriptTags(shopDomain, accessToken);
+  const legacyWidgetTags = existingTags.filter((tag) => tag.src === widgetUrl);
+
+  for (const tag of legacyWidgetTags) {
+    await deleteScriptTag(shopDomain, accessToken, tag.id);
+  }
+
+  return { removedScriptTagIds: legacyWidgetTags.map((tag) => tag.id) };
 }
 
 /**
