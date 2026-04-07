@@ -22,7 +22,11 @@
     "test:integration:local": "docker compose up -d && prisma migrate dev --name local-verify && npm run test && docker compose down",
     "e2e": "playwright test",
     "e2e:smoke": "playwright test e2e/smoke.spec.ts",
-    "e2e:install": "playwright install chromium"
+    "e2e:install": "playwright install chromium",
+    "readiness:env": "tsx scripts/readiness/verify-env.ts",
+    "readiness:run": "tsx scripts/readiness/run.ts",
+    "readiness:integrations": "tsx scripts/readiness/integrations.ts",
+    "readiness:full": "npm run readiness:env && npm run readiness:run && npm run readiness:integrations"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

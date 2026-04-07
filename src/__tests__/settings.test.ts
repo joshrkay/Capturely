@@ -4,6 +4,7 @@ import {
   deleteAccountSchema,
   getActiveSettingsTab,
   getVisibleSettingsTabs,
+  isValidIanaTimeZone,
   parseNotificationPreferences,
   serializeNotificationPreferences,
   updateSettingsSchema,
@@ -23,6 +24,27 @@ describe("settings validation", () => {
   it("rejects updateSettingsSchema when no fields are provided", () => {
     const result = updateSettingsSchema.safeParse({});
     expect(result.success).toBe(false);
+  });
+
+  it("accepts updateSettingsSchema with company and timezone only", () => {
+    const result = updateSettingsSchema.safeParse({
+      company: "Acme Corp",
+      timezone: "UTC",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects updateSettingsSchema for invalid IANA timezone", () => {
+    const result = updateSettingsSchema.safeParse({
+      displayName: "Acme",
+      timezone: "NotA/RealTimezone",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("isValidIanaTimeZone accepts known zones", () => {
+    expect(isValidIanaTimeZone("UTC")).toBe(true);
+    expect(isValidIanaTimeZone("Europe/London")).toBe(true);
   });
 
   it("rejects deleteAccountSchema unless confirmation is exactly DELETE", () => {

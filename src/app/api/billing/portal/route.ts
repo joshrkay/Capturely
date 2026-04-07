@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { withAccountContext, AccountContextError } from "@/lib/account";
 import { canManageBilling } from "@/lib/rbac";
-import { createBillingPortalSession } from "@/lib/stripe";
+import { createBillingPortalSession, StripeConfigurationError } from "@/lib/stripe";
 
 /** POST /api/billing/portal — Create Stripe billing portal session */
 export async function POST() {
@@ -34,6 +34,12 @@ export async function POST() {
   } catch (err) {
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
+    }
+    if (err instanceof StripeConfigurationError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: 503 }
+      );
     }
     throw err;
   }

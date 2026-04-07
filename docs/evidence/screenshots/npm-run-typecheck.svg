@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="726" height="238">
+<rect width="100%" height="100%" fill="#0b1020"/>
+<text x="20" y="30" fill="#d7e3ff" font-family="monospace" font-size="14">
+<tspan x="20" y="30">npm warn Unknown env config &quot;http-proxy&quot;. This will stop working in the next major version of npm.</tspan>
+<tspan x="20" y="48"></tspan>
+<tspan x="20" y="66">&gt; capturely-tmp@0.1.0 typecheck</tspan>
+<tspan x="20" y="84">&gt; prisma generate &amp;&amp; tsc --noEmit</tspan>
+<tspan x="20" y="102"></tspan>
+<tspan x="20" y="120">Loaded Prisma config from prisma.config.ts.</tspan>
+<tspan x="20" y="138"></tspan>
+<tspan x="20" y="156">Prisma schema loaded from prisma/schema.prisma.</tspan>
+<tspan x="20" y="174"></tspan>
+<tspan x="20" y="192">✔ Generated Prisma Client (7.4.1) to ./src/generated/prisma in 277ms</tspan>
+<tspan x="20" y="210"></tspan>
+</text></svg>

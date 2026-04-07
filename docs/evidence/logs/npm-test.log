@@ -1,0 +1,36 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> capturely-tmp@0.1.0 test
+> prisma generate && vitest run
+
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma/schema.prisma.
+
+✔ Generated Prisma Client (7.4.1) to ./src/generated/prisma in 308ms
+
+
+ RUN  v4.0.18 /workspace/Capturely
+
+ ✓ src/app/app/campaigns/[id]/builder/components/__tests__/FormPreview.test.tsx (14 tests) 8ms
+ ✓ src/__tests__/api-settings.test.ts (9 tests) 62ms
+ ✓ src/lib/ai/prompts/__tests__/prompts.test.ts (16 tests) 10ms
+ ✓ src/app/app/campaigns/[id]/builder/_components/__tests__/VariantManagerPanel.test.ts (16 tests) 10ms
+ ✓ src/__tests__/api-campaign-analytics.test.ts (3 tests) 16ms
+ ✓ src/__tests__/api-billing-status.test.ts (3 tests) 14ms
+ ✓ src/__tests__/api-analytics-overview.test.ts (3 tests) 17ms
+ ✓ src/__tests__/settings.test.ts (11 tests) 34ms
+ ✓ src/__tests__/statistics.test.ts (14 tests) 7ms
+ ✓ src/__tests__/account.test.ts (4 tests) 9ms
+ ✓ src/app/app/campaigns/new/__tests__/template-behaviors.test.tsx (6 tests) 16ms
+ ✓ src/app/app/settings/components/__tests__/notifications-client.test.ts (2 tests) 8ms
+ ✓ src/__tests__/rbac.test.ts (15 tests) 5ms
+ ✓ src/app/api/settings/__tests__/schemas.test.ts (6 tests) 30ms
+ ✓ src/lib/templates/__tests__/index.test.ts (4 tests) 5ms
+ ✓ src/app/app/campaigns/new/__tests__/sites-response.test.ts (2 tests) 4ms
+
+ Test Files  16 passed (16)
+      Tests  128 passed (128)
+   Start at  14:51:27
+   Duration  5.57s (transform 930ms, setup 0ms, import 2.29s, tests 256ms, environment 2ms)
+

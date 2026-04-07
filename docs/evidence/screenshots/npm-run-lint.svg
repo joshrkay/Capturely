@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="894" height="562">
+<rect width="100%" height="100%" fill="#0b1020"/>
+<text x="20" y="30" fill="#d7e3ff" font-family="monospace" font-size="14">
+<tspan x="20" y="30">npm warn Unknown env config &quot;http-proxy&quot;. This will stop working in the next major version of npm.</tspan>
+<tspan x="20" y="48"></tspan>
+<tspan x="20" y="66">&gt; capturely-tmp@0.1.0 lint</tspan>
+<tspan x="20" y="84">&gt; eslint</tspan>
+<tspan x="20" y="102"></tspan>
+<tspan x="20" y="120"></tspan>
+<tspan x="20" y="138">/workspace/Capturely/e2e/smoke.spec.ts</tspan>
+<tspan x="20" y="156">   54:5  warning  Unused eslint-disable directive (no problems were reported from &#x27;@typescript-eslint/no-unsafe-argument&#x27;)</tspan>
+<tspan x="20" y="174">  108:5  warning  Unused eslint-disable directive (no problems were reported from &#x27;@typescript-eslint/no-unsafe-argument&#x27;)</tspan>
+<tspan x="20" y="192"></tspan>
+<tspan x="20" y="210">/workspace/Capturely/src/app/api/experiments/route.ts</tspan>
+<tspan x="20" y="228">  73:11  warning  &#x27;ctx&#x27; is assigned a value but never used  @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="246"></tspan>
+<tspan x="20" y="264">/workspace/Capturely/src/app/api/integrations/shopify/callback/route.ts</tspan>
+<tspan x="20" y="282">  14:11  warning  &#x27;hmac&#x27; is assigned a value but never used  @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="300"></tspan>
+<tspan x="20" y="318">/workspace/Capturely/src/app/api/invites/route.ts</tspan>
+<tspan x="20" y="336">  38:11  warning  &#x27;existingMembers&#x27; is assigned a value but never used  @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="354"></tspan>
+<tspan x="20" y="372">/workspace/Capturely/src/app/app/campaigns/[id]/builder/components/multi-step-editor.tsx</tspan>
+<tspan x="20" y="390">   3:20  warning  &#x27;useRef&#x27; is defined but never used              @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="408">  69:46  warning  &#x27;transform&#x27; is assigned a value but never used  @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="426"></tspan>
+<tspan x="20" y="444">/workspace/Capturely/src/app/app/campaigns/[id]/builder/page.tsx</tspan>
+<tspan x="20" y="462">  375:10  warning  &#x27;AiCopilotPanel&#x27; is defined but never used  @typescript-eslint/no-unused-vars</tspan>
+<tspan x="20" y="480"></tspan>
+<tspan x="20" y="498">✖ 8 problems (0 errors, 8 warnings)</tspan>
+<tspan x="20" y="516">  0 errors and 2 warnings potentially fixable with the `--fix` option.</tspan>
+<tspan x="20" y="534"></tspan>
+</text></svg>

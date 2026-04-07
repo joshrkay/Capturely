@@ -19,6 +19,9 @@ export const metadata: Metadata = {
     "Build high-converting forms with AI. Capturely auto-generates variants, runs A/B tests, and promotes winners to maximize your conversion rate.",
 };
 
+/** Avoid static prerender of the whole tree with Clerk (needs valid keys at build time). */
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{

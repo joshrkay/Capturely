@@ -1,0 +1,29 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> capturely-tmp@0.1.0 lint
+> eslint
+
+
+/workspace/Capturely/e2e/smoke.spec.ts
+   54:5  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-unsafe-argument')
+  108:5  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-unsafe-argument')
+
+/workspace/Capturely/src/app/api/experiments/route.ts
+  73:11  warning  'ctx' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Capturely/src/app/api/integrations/shopify/callback/route.ts
+  14:11  warning  'hmac' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Capturely/src/app/api/invites/route.ts
+  38:11  warning  'existingMembers' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Capturely/src/app/app/campaigns/[id]/builder/components/multi-step-editor.tsx
+   3:20  warning  'useRef' is defined but never used              @typescript-eslint/no-unused-vars
+  69:46  warning  'transform' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Capturely/src/app/app/campaigns/[id]/builder/page.tsx
+  375:10  warning  'AiCopilotPanel' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 8 problems (0 errors, 8 warnings)
+  0 errors and 2 warnings potentially fixable with the `--fix` option.
+

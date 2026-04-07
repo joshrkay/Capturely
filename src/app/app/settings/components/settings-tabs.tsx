@@ -16,6 +16,8 @@ type SettingsTabsProps = {
   account: {
     id: string;
     name: string;
+    company: string | null;
+    timezone: string | null;
     planKey: string;
     paymentStatus: string;
     createdAt: string;

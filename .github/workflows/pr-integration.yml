@@ -55,6 +55,9 @@ jobs:
       - name: Tests
         run: npm run test
 
+      - name: Production build
+        run: npm run build
+
       - name: Teardown docker-compose
         if: always()
         run: docker compose down -v
