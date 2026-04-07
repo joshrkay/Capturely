@@ -66,7 +66,11 @@ describe("withAccountContext integration", () => {
   });
 
   it("returns existing membership for returning users", async () => {
-    mockFindFirst.mockResolvedValue({
+    mockAuth.mockResolvedValue({
+      userId: "user_returning",
+      sessionClaims: { email: "returning@login.test" },
+    } as never);
+    mockFindFirst.mockResolvedValueOnce({
       accountId: "acc_existing",
       role: MemberRole.admin,
     } as never);
@@ -75,13 +79,17 @@ describe("withAccountContext integration", () => {
 
     expect(ctx).toEqual({
       accountId: "acc_existing",
-      userId: "user_1",
+      userId: "user_returning",
       role: MemberRole.admin,
     });
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it("recovers from create failure by retrying membership lookup", async () => {
+    mockAuth.mockResolvedValue({
+      userId: "user_retry",
+      sessionClaims: { email_address: "retry@login.test" },
+    } as never);
     mockFindFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
@@ -94,7 +102,7 @@ describe("withAccountContext integration", () => {
 
     expect(ctx).toEqual({
       accountId: "acc_retry",
-      userId: "user_1",
+      userId: "user_retry",
       role: MemberRole.owner,
     });
     expect(mockFindFirst).toHaveBeenCalledTimes(2);
