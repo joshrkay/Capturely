@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { getAccountOwnerEmail } from "@/lib/account-owner-email";
 import { sendAccountSuspendedEmail } from "@/lib/email";
 
 /**
@@ -20,12 +20,22 @@ export async function POST(req: NextRequest) {
       paymentStatus: "past_due",
       paymentGraceUntil: { lt: now },
     },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      members: {
+        where: { role: "owner" },
+        select: { userId: true },
+        take: 1,
+      },
+    },
   });
 
   const suspendedIds: string[] = [];
 
   for (const account of expiredAccounts) {
+    const ownerUserId = account.members[0]?.userId;
+
     const didSuspend = await prisma.$transaction(async (tx) => {
       const updated = await tx.account.updateMany({
         where: {
@@ -57,13 +67,15 @@ export async function POST(req: NextRequest) {
 
     suspendedIds.push(account.id);
 
-    try {
-      const email = await getAccountOwnerEmail(account.id);
-      if (email) {
-        await sendAccountSuspendedEmail(email, account.name);
+    if (ownerUserId) {
+      try {
+        const email = await resolveClerkPrimaryEmail(ownerUserId);
+        if (email) {
+          await sendAccountSuspendedEmail(email, account.name);
+        }
+      } catch {
+        // Email is best-effort
       }
-    } catch {
-      // Email is best-effort
     }
   }
 
@@ -72,4 +84,13 @@ export async function POST(req: NextRequest) {
     suspended: suspendedIds.length,
     suspendedIds,
   });
+}
+
+async function resolveClerkPrimaryEmail(userId: string): Promise<string | null> {
+  const client = await clerkClient();
+  const user = await client.users.getUser(userId);
+  const primaryId = user.primaryEmailAddressId;
+  const primary =
+    user.emailAddresses.find((e) => e.id === primaryId) ?? user.emailAddresses[0];
+  return primary?.emailAddress ?? null;
 }

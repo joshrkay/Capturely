@@ -13,6 +13,11 @@ const updateCampaignSchema = z.object({
   spamConfigJson: z.string().optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),
   autoOptimize: z.boolean().optional(),
+  optimizationGoalText: z.string().max(2000).optional().nullable(),
+  optimizationGoalKind: z
+    .enum(["maximize_submissions", "maximize_qualified_leads", "maximize_field_completion"])
+    .optional(),
+  optimizationGoalFieldKey: z.string().max(200).optional().nullable(),
 });
 
 /** GET /api/campaigns/:id */
@@ -88,6 +93,11 @@ export async function PATCH(
     if (parsed.data.spamConfigJson !== undefined) data.spamConfigJson = parsed.data.spamConfigJson;
     if (parsed.data.webhookUrl !== undefined) data.webhookUrl = parsed.data.webhookUrl;
     if (parsed.data.autoOptimize !== undefined) data.autoOptimize = parsed.data.autoOptimize;
+    if (parsed.data.optimizationGoalText !== undefined) data.optimizationGoalText = parsed.data.optimizationGoalText;
+    if (parsed.data.optimizationGoalKind !== undefined) data.optimizationGoalKind = parsed.data.optimizationGoalKind;
+    if (parsed.data.optimizationGoalFieldKey !== undefined) {
+      data.optimizationGoalFieldKey = parsed.data.optimizationGoalFieldKey;
+    }
     data.hasUnpublishedChanges = true;
 
     const updated = await prisma.campaign.update({

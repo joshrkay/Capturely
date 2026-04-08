@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 const impressionSchema = z.object({
   visitorId: z.string().min(1),
   experimentKey: z.string().min(1),
@@ -15,7 +21,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const parsed = impressionSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid input" }, { status: 400, headers: corsHeaders });
   }
 
   await prisma.experimentEvent.create({
@@ -29,17 +35,13 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({ tracked: true });
+  return NextResponse.json({ tracked: true }, { headers: corsHeaders });
 }
 
 /** OPTIONS — CORS preflight */
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    },
+    headers: corsHeaders,
   });
 }
