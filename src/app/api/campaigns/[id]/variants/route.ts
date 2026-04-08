@@ -53,23 +53,88 @@ function schemaValidationErrorResponse(issues: Array<{ path: string; message: st
   );
 }
 
-function allocationValidationErrorResponse(
-  totalTraffic: number,
-  variants: Array<{ id: string; name: string; trafficPercentage: number }>
+function variantConflictResponse(message: string, code: string, status = 409) {
+  return NextResponse.json({ error: message, code }, { status });
+}
+
+class VariantPromotionConflictError extends Error {
+  constructor(public code: "VARIANT_NOT_FOUND_CONFLICT" | "VARIANT_CAMPAIGN_CONFLICT") {
+    super(code);
+  }
+}
+
+async function promoteVariantToControl(
+  campaignId: string,
+  variantId: string,
+  updates: { name?: string; schemaJson?: string; trafficPercentage?: number }
 ) {
-  return NextResponse.json(
-    {
-      error: "Traffic allocations must total 100",
-      code: "VALIDATION_ERROR",
-      details: {
-        constraint: "TOTAL_TRAFFIC_ALLOCATION",
-        expectedTotal: 100,
-        actualTotal: totalTraffic,
-        variants,
+  return prisma.$transaction(async (tx) => {
+    const target = await tx.variant.findUnique({
+      where: { id: variantId },
+      select: { id: true, campaignId: true },
+    });
+
+    if (!target) {
+      throw new VariantPromotionConflictError("VARIANT_NOT_FOUND_CONFLICT");
+    }
+
+    if (target.campaignId !== campaignId) {
+      throw new VariantPromotionConflictError("VARIANT_CAMPAIGN_CONFLICT");
+    }
+
+    const siblings = await tx.variant.findMany({
+      where: { campaignId },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const inCampaign = siblings.some((sibling) => sibling.id === variantId);
+    if (!inCampaign) {
+      throw new VariantPromotionConflictError("VARIANT_CAMPAIGN_CONFLICT");
+    }
+
+    const nonControlCount = Math.max(0, siblings.length - 1);
+    const configuredControlTraffic = updates.trafficPercentage;
+    const controlTraffic = nonControlCount === 0
+      ? 100
+      : configuredControlTraffic !== undefined
+        ? configuredControlTraffic
+        : Math.floor(100 / siblings.length) + (100 - Math.floor(100 / siblings.length) * siblings.length);
+    const nonControlPool = Math.max(0, 100 - controlTraffic);
+    const nonControlBase = nonControlCount > 0 ? Math.floor(nonControlPool / nonControlCount) : 0;
+    let nonControlRemainder = nonControlPool - nonControlBase * nonControlCount;
+
+    await tx.variant.updateMany({
+      where: { campaignId },
+      data: { isControl: false },
+    });
+
+    await tx.variant.update({
+      where: { id: variantId },
+      data: {
+        ...(updates.name !== undefined && { name: updates.name }),
+        ...(updates.schemaJson !== undefined && { schemaJson: updates.schemaJson }),
+        isControl: true,
+        trafficPercentage: controlTraffic,
+        schemaVersion: { increment: 1 },
       },
-    },
-    { status: 400 }
-  );
+    });
+
+    for (const sibling of siblings) {
+      if (sibling.id === variantId) continue;
+      const extra = nonControlRemainder > 0 ? 1 : 0;
+      nonControlRemainder -= extra;
+      await tx.variant.update({
+        where: { id: sibling.id },
+        data: { trafficPercentage: nonControlBase + extra },
+      });
+    }
+
+    return tx.variant.findMany({
+      where: { campaignId },
+      select: { id: true, name: true, trafficPercentage: true, isControl: true },
+    });
+  });
 }
 
 /** POST /api/campaigns/:id/variants — Add a variant (A/B testing) */
@@ -205,11 +270,48 @@ export async function PATCH(
       }
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const campaignVariants = await tx.variant.findMany({
-        where: { campaignId: id },
-        select: { id: true, name: true, trafficPercentage: true, schemaVersion: true, isControl: true },
+    if (rest.isControl === true) {
+      const allVariants = await promoteVariantToControl(id, variantId, {
+        name: rest.name,
+        schemaJson: rest.schemaJson,
+        trafficPercentage: rest.trafficPercentage,
       });
+
+      await prisma.campaign.update({
+        where: { id },
+        data: { hasUnpublishedChanges: true },
+      });
+
+      return NextResponse.json({ promotedVariantId: variantId, allVariants });
+    }
+
+    if (rest.isControl === false) {
+      return variantConflictResponse(
+        "Control demotion must be performed by promoting another variant",
+        "CONTROL_DEMOTION_FORBIDDEN",
+      );
+    }
+
+    const variantInCampaign = await prisma.variant.findFirst({
+      where: { id: variantId, campaignId: id },
+      select: { id: true },
+    });
+    if (!variantInCampaign) {
+      return variantConflictResponse(
+        "Variant is missing or does not belong to this campaign",
+        "VARIANT_CONFLICT",
+      );
+    }
+
+    const variant = await prisma.variant.update({
+      where: { id: variantId },
+      data: {
+        ...(rest.name !== undefined && { name: rest.name }),
+        ...(rest.schemaJson !== undefined && { schemaJson: rest.schemaJson }),
+        ...(rest.trafficPercentage !== undefined && { trafficPercentage: rest.trafficPercentage }),
+        schemaVersion: { increment: 1 },
+      },
+    });
 
       const targetVariantId = variantId ?? trafficUpdates?.[0]?.variantId;
       if (!targetVariantId) {
@@ -350,6 +452,18 @@ export async function PATCH(
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof VariantPromotionConflictError && err.code === "VARIANT_NOT_FOUND_CONFLICT") {
+      return variantConflictResponse(
+        "Variant no longer exists or was deleted",
+        "VARIANT_NOT_FOUND_CONFLICT",
+      );
+    }
+    if (err instanceof VariantPromotionConflictError && err.code === "VARIANT_CAMPAIGN_CONFLICT") {
+      return variantConflictResponse(
+        "Variant does not belong to this campaign",
+        "VARIANT_CAMPAIGN_CONFLICT",
+      );
+    }
     if (err instanceof AccountContextError) {
       return NextResponse.json({ error: err.message, code: "AUTH_ERROR" }, { status: err.statusCode });
     }
