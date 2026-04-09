@@ -29,14 +29,29 @@ export function getStripeClient(): Stripe {
   return _stripe;
 }
 
-/** Stripe price IDs mapped to plan keys */
-const PLAN_PRICE_MAP: Record<string, string> = {
-  starter: process.env.STRIPE_STARTER_PRICE_ID ?? "price_starter",
-  growth: process.env.STRIPE_GROWTH_PRICE_ID ?? "price_growth",
-};
+const PLAN_PRICE_ENV_MAP = {
+  starter: "STRIPE_STARTER_PRICE_ID",
+  growth: "STRIPE_GROWTH_PRICE_ID",
+} as const;
 
 export function getPriceIdForPlan(planKey: string): string | null {
-  return PLAN_PRICE_MAP[planKey] ?? null;
+  const envKey = PLAN_PRICE_ENV_MAP[planKey as keyof typeof PLAN_PRICE_ENV_MAP];
+  if (!envKey) {
+    return null;
+  }
+
+  const priceId = process.env[envKey];
+  return priceId && priceId.trim() !== "" ? priceId : null;
+}
+
+export function getPlanKeyForPriceId(planPriceId: string): string | null {
+  for (const planKey of Object.keys(PLAN_PRICE_ENV_MAP)) {
+    const configuredPriceId = getPriceIdForPlan(planKey);
+    if (configuredPriceId === planPriceId) {
+      return planKey;
+    }
+  }
+  return null;
 }
 
 export async function createCheckoutSession(params: {
@@ -48,7 +63,7 @@ export async function createCheckoutSession(params: {
 }): Promise<string> {
   const priceId = getPriceIdForPlan(params.planKey);
   if (!priceId) {
-    throw new Error(`No price configured for plan: ${params.planKey}`);
+    throw new StripeConfigurationError(`No Stripe price ID configured for plan: ${params.planKey}`);
   }
 
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
