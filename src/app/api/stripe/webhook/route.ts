@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAccountOwnerEmail } from "@/lib/account-owner-email";
-import { StripeConfigurationError, verifyWebhookSignature } from "@/lib/stripe";
+import { getPlanKeyForPriceId, StripeConfigurationError, verifyWebhookSignature } from "@/lib/stripe";
 import { sendPaymentFailedEmail, sendPaymentResumedEmail } from "@/lib/email";
 import Stripe from "stripe";
 
@@ -72,12 +72,26 @@ export async function POST(req: NextRequest) {
         where: { stripeCustomerId: sub.customer as string },
       });
       if (account) {
+        const firstItem = sub.items.data[0];
+        const mappedPlanKey = firstItem?.price?.id
+          ? getPlanKeyForPriceId(firstItem.price.id)
+          : null;
+
+        const updateData: {
+          billingCycleStart: Date;
+          billingCycleEnd: Date;
+          planKey?: string;
+        } = {
+          billingCycleStart: new Date((sub as unknown as { current_period_start: number }).current_period_start * 1000),
+          billingCycleEnd: new Date((sub as unknown as { current_period_end: number }).current_period_end * 1000),
+        };
+        if (mappedPlanKey) {
+          updateData.planKey = mappedPlanKey;
+        }
+
         await prisma.account.update({
           where: { id: account.id },
-          data: {
-            billingCycleStart: new Date((sub as unknown as { current_period_start: number }).current_period_start * 1000),
-            billingCycleEnd: new Date((sub as unknown as { current_period_end: number }).current_period_end * 1000),
-          },
+          data: updateData,
         });
       }
       break;

@@ -1,4 +1,4 @@
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY ?? "";
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET ?? "";
@@ -43,7 +43,14 @@ export function verifyHmac(
     .update(message)
     .digest("hex");
 
-  return digest === hmac;
+  try {
+    const a = Buffer.from(digest, "hex");
+    const b = Buffer.from(hmac, "hex");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 interface ShopifyScriptTag {
